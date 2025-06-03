@@ -1,9 +1,6 @@
 use super::prelude::*;
-use bevy_ecs::{
-    entity::Entity,
-    query::{QueryData, QueryFilter, WorldQuery},
-    system::Query,
-};
+use bevy::prelude::*;
+use bevy_ecs::query::{QueryData, QueryFilter, WorldQuery};
 
 pub trait HierarchyQueryExt<'w, 's, D: QueryData, F: QueryFilter> {
     fn iter_child_sms(&'w self, entity: Entity) -> DescendantIter<'w, 's, D, F>

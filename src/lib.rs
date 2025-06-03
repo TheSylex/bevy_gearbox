@@ -1,19 +1,11 @@
 use bevy::{hierarchy::HierarchyQueryExt, prelude::*};
+use crate::prelude::*;
 
 pub mod commands;
 pub mod components;
 pub mod iter;
 pub mod prelude;
 pub mod state_aggregator;
-
-// re-export state_machine macro
-pub use bevy_gearbox_macros::state_machine;
-
-// re-export essential state machine functionality
-pub use commands::{OnEnterState, OnExitState, StateTransitionCommandsExt};
-pub use components::{RestingState, WorkingState, InChildSMState, FinishedChildSMState, FizzledState};
-pub use iter::HierarchyQueryExt as GearboxHierarchyQueryExt;
-pub use state_aggregator::StateAggregator;
 
 /// HSM impl using triggers and observers.
 /// 

@@ -1,14 +1,6 @@
-pub use super::*;
-pub use super::commands::*;
-pub use super::state_aggregator::*;
-
-// Essential state machine functionality for easy access
-pub use super::{
-    state_machine,
-    OnEnterState, OnExitState, StateTransitionCommandsExt,
-    RestingState, WorkingState, InChildSMState, FinishedChildSMState, FizzledState,
-    GearboxPlugin
-};
-
-// Explicitly re-export StateAggregator to ensure it's available through prelude
-pub use super::state_aggregator::StateAggregator;
+// Re-export commonly used items from submodules
+pub use crate::commands::*;
+pub use crate::components::*;
+pub use crate::iter::*;
+pub use crate::state_aggregator::*;
+pub use bevy_gearbox_macros::state_machine;
