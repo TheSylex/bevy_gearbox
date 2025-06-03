@@ -1,3 +1,16 @@
+/// Demonstrates basic use of the HSM feature. We define a character state machine with
+/// a free move state, resting state, and dead state.
+/// 
+/// We also define an ability state machine with a resting state, working state, and fizzled state.
+/// 
+/// The character state machine is a parent of the ability state machine.
+///
+/// On giving an input, the character will transition to the child ability state machine.
+/// When the ability is finished, the character will transition back to the free move state.
+/// 
+/// Note: You must manually transition the character back to the free move state, as well as 
+/// any other transitions. Transitions are handled by observers, so you don't need to worry about
+/// invalid states.
 use bevy::prelude::*;
 use bevy_gearbox::prelude::*;
 
@@ -42,7 +55,6 @@ fn setup(mut commands: Commands) {
     // Spawn a character
     let character = commands.spawn((
         Character { name: "Hero".to_string() },
-        FreeMoveState, // Start in free move state
     )).id();
     
     // Spawn an ability as a child of the character
@@ -51,7 +63,6 @@ fn setup(mut commands: Commands) {
             name: "Fireball".to_string(),
             duration: 2.0,
         },
-        RestingState::new(),
     )).id();
     
     // Set up the parent-child relationship
