@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_gearbox::{prelude::{FinishedChildSMState, InChildSMState, RestingState, StateTransitionCommandsExt, WorkingState}, state_aggregator::StateAggregator, *};
-use macros::state_machine;
+use bevy_gearbox_macros::state_machine;
 
 #[derive(Component, Reflect)]
 struct TestCharacter;

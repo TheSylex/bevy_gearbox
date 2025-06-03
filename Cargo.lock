@@ -580,7 +580,18 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_ecs",
- "macros",
+ "bevy_gearbox_macros",
+]
+
+[[package]]
+name = "bevy_gearbox_macros"
+version = "0.1.0"
+dependencies = [
+ "derive-alias",
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -2583,17 +2594,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b955cdeb2a02b9117f121ce63aa52d08ade45de53e48fe6a38b39c10f6f709"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "macros"
-version = "0.1.0"
-dependencies = [
- "derive-alias",
- "heck",
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

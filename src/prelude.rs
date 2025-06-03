@@ -9,3 +9,6 @@ pub use super::{
     RestingState, WorkingState, InChildSMState, FinishedChildSMState, FizzledState,
     GearboxPlugin
 };
+
+// Explicitly re-export StateAggregator to ensure it's available through prelude
+pub use super::state_aggregator::StateAggregator;

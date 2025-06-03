@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_gearbox::{prelude::{FinishedChildSMState, FizzledState, InChildSMState, RestingState, StateTransitionCommandsExt, WorkingState}, *};
-use macros::state_machine;
+use bevy_gearbox_macros::state_machine;
 use crate::prelude::commands;
 
 #[derive(Component, Reflect)]

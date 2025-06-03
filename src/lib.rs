@@ -7,7 +7,7 @@ pub mod prelude;
 pub mod state_aggregator;
 
 // re-export state_machine macro
-pub use macros::state_machine;
+pub use bevy_gearbox_macros::state_machine;
 
 // re-export essential state machine functionality
 pub use commands::{OnEnterState, OnExitState, StateTransitionCommandsExt};
