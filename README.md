@@ -83,7 +83,7 @@ For advanced use cases, `bevy_gearbox` supports parent-child state machine relat
 ## Setup
 
 1. **Add to your project:**
-```toml
+```bash
 cargo add bevy_gearbox
 ```
 
@@ -106,9 +106,6 @@ fn main() {
 ```rust
 // Starts in IdleState automatically
 commands.spawn(Player);
-
-// Or with explicit initial state
-commands.spawn((Player, RunningState { speed: 5.0 }));
 ```
 
 ## Querying States
@@ -143,6 +140,4 @@ fn current_state_system(
 
 - Add comprehensive HSM examples (character abilities, AI behavior trees)
 - Add state blocking examples (cooldowns, resource management)
-- Add complex nested state machine examples
-- Add performance considerations and best practices guide
-- Add migration guide for upgrading between versions 
+- Add complex nested state machine example
