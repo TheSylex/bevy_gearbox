@@ -1,0 +1,12 @@
+[package]
+name = "bevy_gearbox"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.15"
+macros = { path = "./macros" }
+bevy_ecs = { version = "0.15.0", default-features = false }
+
+[dev-dependencies]
+bevy = { version = "0.15", features = ["default"] }
