@@ -65,6 +65,7 @@ fn movement_system(
 3. **`state_machine!` Macro**: Connects the owner to its possible states and generates:
    - A `<OwnerName>StateEnum` to track current state
    - A `<OwnerName>Plugin` with necessary systems
+   - A set of observers that ensure mutual exclusivity between components defined in the body. 
 
 ### State Transitions
 
