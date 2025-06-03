@@ -8,10 +8,9 @@ States are components. bevy_gearbox integrates seemlessly with the bevy ecs and 
 
 State changes are handled by observers, meaning you'll never have a character that is both `Idle` and `Dead`.
 
-Perfect for game entities that need complex state management:
-- **Characters** with abilities that can interrupt normal behavior
-- **AI systems** with layered decision-making
-- **Interactive objects** with multiple operational modes
+State machines can be hierarchical, meaning one state machine can give control to a child state machine. 
+
+Perfect for game entities that need complex state management. I'm using it for my character and ability systems.
 
 ## Quick Example
 
