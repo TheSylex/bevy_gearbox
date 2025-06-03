@@ -20,7 +20,7 @@
     struct Character;
     ```
 
-2.  **State Components:** Plain Bevy `Component`s that represent individual states. The first state listed in the `state_machine!` macro **must implement `Default`**.
+2.  **State Components:** Plain Bevy `Component`s that represent individual states. The first state listed in the `state_machine!` macro **must implement `Default`**. States can hold data!
     ```rust
     use bevy::prelude::Component;
 
@@ -30,16 +30,9 @@
     #[derive(Component, Clone, Debug)]
     struct RunningState;
 
-    // For states with data that need to be default-constructible:
     #[derive(Component, Clone, Debug)]
     struct SpecialAbilityState {
         power_level: u32,
-    }
-
-    impl Default for SpecialAbilityState {
-        fn default() -> Self {
-            Self { power_level: 10 } // Example default
-        }
     }
     ```
 
@@ -107,10 +100,10 @@
 
 **Key HSM States (from `bevy_gearbox::prelude`):**
 
--   `RestingState`: The default state for an inactive child SM. Can have blockers.
+-   `RestingState`: The default state for an inactive child SM. Supports 'blockers.' Blockers prevent a child state machine from being activated. An ability might have `ManaCost` and a `Cooldown` blocker.
 -   `WorkingState`: The state a child SM enters when activated by its parent.
 -   `InChildSMState(Entity)`: The state a parent SM enters when it passes control to the child SM (whose entity is the argument).
--   `FinishedChildSMState(Entity)`: The state a parent SM is transitioned to (by the system) when its child SM returns to `RestingState`.
+-   `FinishedChildSMState(Entity)`: The state a parent SM is transitioned to when its child SM returns to `RestingState`. You must define your own `FinishedChildSMState` return conditions.
 -   `FizzledState`: The state a child SM enters if its parent exits `InChildSMState` prematurely.
 
 **HSM Flow Example:**
@@ -132,8 +125,8 @@
 
 2.  **`bevy_gearbox` systems take over (after `app.update()`):**
     *   If `ability_entity`'s `RestingState` (assuming it was transitioned there or started there and is a prerequisite for `WorkingState`) is not blocked:
-        *   `character_entity` now has `InChildSMState(ability_entity)` component and its `CharacterStateEnum` is updated.
-        *   `ability_entity` is transitioned from its current state (e.g. `RestingState`) to `WorkingState`.
+        *   `character_entity` now has `InChildSMState(ability_entity)` component and its `CharacterStateEnum` is updated. Any other state component defined in the `Character` `state_machine!` macro call will be removed and `OnEnter<InChildSMState>` and `OnExit<IdleState>` triggers will be fired.
+        *   `ability_entity` is transitioned from its current state (e.g. `RestingState`) to `WorkingState`. `RestingState` is removed, `WorkingState` is inserted, and appropriate `OnEnter<T>, OnExit<T>` triggers are fired.
     *   If `ability_entity`'s `RestingState` *is* blocked:
         *   `character_entity` transition to `InChildSMState` is reverted by `GearboxPlugin` systems (e.g., back to `RestingState` or the state it was in before attempting transition to `InChildSMState`).
 
