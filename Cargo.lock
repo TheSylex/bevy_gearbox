@@ -586,6 +586,8 @@ dependencies = [
 [[package]]
 name = "bevy_gearbox_macros"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bcd4bdf912e407b04ef897e142854ee09204b5f669324389b9ad916865b7bd05"
 dependencies = [
  "derive-alias",
  "heck",
