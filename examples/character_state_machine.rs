@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 /// Demonstrates basic use of the HSM feature. We define a character state machine with
 /// a free move state, resting state, and dead state.
 /// 
@@ -42,10 +44,20 @@ struct Ability {
     duration: f32,
 }
 
+#[derive(Component, Clone, Debug)]
+struct WindUpState(Timer);
+
+impl WindUpState {
+    fn new(duration: f32) -> Self {
+        Self(Timer::new(Duration::from_secs_f32(duration), TimerMode::Once))
+    }
+}
+
 // Use the state machine macro for abilities
 state_machine!(Ability;
     RestingState,
     WorkingState,
+    WindUpState,
     FizzledState,
 );
 
@@ -71,6 +83,15 @@ fn setup(mut commands: Commands) {
     info!("Character and ability spawned");
 }
 
+fn transition_to_wind_up_system(
+    mut commands: Commands,
+    ability_query: Query<(Entity, &Ability), With<WorkingState>>,
+) {
+    for (ability_entity, ability) in ability_query.iter() {
+        commands.entity(ability_entity).transition(WindUpState::new(ability.duration));
+    }
+}
+
 fn cast_ability_system(
     mut commands: Commands,
     character_query: Query<Entity, (With<Character>, With<FreeMoveState>)>,
@@ -93,16 +114,14 @@ fn cast_ability_system(
 
 fn ability_progress_system(
     mut commands: Commands,
-    mut ability_query: Query<(Entity, &mut Ability), With<WorkingState>>,
+    mut ability_query: Query<(Entity, &mut WindUpState, &Ability)>,
     time: Res<Time>,
 ) {
-    for (ability_entity, mut ability) in ability_query.iter_mut() {
-        ability.duration -= time.delta_secs();
+    for (ability_entity, mut wind_up_state, ability) in ability_query.iter_mut() {
+        wind_up_state.0.tick(time.delta());
         
-        if ability.duration <= 0.0 {
+        if wind_up_state.0.finished() {
             info!("Ability {} completed", ability.name);
-            // Reset duration for next cast
-            ability.duration = 2.0;
             // Transition back to RestingState to return control to parent
             commands.entity(ability_entity).transition(RestingState::new());
         }
@@ -147,6 +166,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Update, (
             cast_ability_system,
+            transition_to_wind_up_system,
             ability_progress_system,
             handle_finished_ability_system,
             character_state_logger,
