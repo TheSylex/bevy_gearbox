@@ -4,6 +4,10 @@ A Bevy plugin for managing entity states with support for hierarchical state mac
 
 ## Why Use This?
 
+States are components. bevy_gearbox integrates seemlessly with the bevy ecs and query systems. 
+
+State changes are handled by observers, meaning you'll never have a character that is both `Idle` and `Dead`.
+
 Perfect for game entities that need complex state management:
 - **Characters** with abilities that can interrupt normal behavior
 - **AI systems** with layered decision-making
@@ -27,7 +31,9 @@ struct RunningState { speed: f32 }
 #[derive(Component, Clone, Debug)]
 struct JumpingState;
 
-// Define the state machine
+// Define the state machine. Think of this as defining a set of 
+// mutually exclusive components. Exclusivity is maintained with
+// observers. 
 state_machine!(Player;
     IdleState,     // First state must implement Default
     RunningState,
