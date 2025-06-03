@@ -82,11 +82,9 @@ For advanced use cases, `bevy_gearbox` supports parent-child state machine relat
 
 ## Setup
 
-1. **Add to `Cargo.toml`:**
+1. **Add to your project:**
 ```toml
-[dependencies]
-bevy = "0.14"  # Your Bevy version
-bevy_gearbox = { path = "path/to/bevy_gearbox" }
+cargo add bevy_gearbox
 ```
 
 2. **Add plugins to your app:**
