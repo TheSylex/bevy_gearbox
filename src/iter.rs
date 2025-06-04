@@ -45,11 +45,11 @@ impl<'w, 's, D: QueryData, F: QueryFilter> HierarchyQueryExt<'w, 's, D, F>
         AncestorIter::new(self, entity)
     }
 
-    fn current_sm(&'w self, entity: Entity) -> Option<Entity>
+    fn current_sm(&'w self, entity: Entity) -> Entity
     where
         D::ReadOnly: WorldQuery<Item<'w> = &'w InChildSMState>,
     {
-        self.iter_child_sms(entity).last()
+        self.iter_child_sms(entity).last().unwrap_or(entity)
     }
 
     fn ancestor_sm(&'w self, entity: Entity) -> Option<Entity>
