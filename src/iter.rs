@@ -2,12 +2,12 @@ use super::prelude::*;
 use bevy::prelude::*;
 use bevy_ecs::query::{QueryData, QueryFilter, WorldQuery};
 
-pub trait HierarchyQueryExt<'w, 's, D: QueryData, F: QueryFilter> {
-    fn iter_child_sms(&'w self, entity: Entity) -> DescendantIter<'w, 's, D, F>
+pub trait GearboxQueryExt<'w, 's, D: QueryData, F: QueryFilter> {
+    fn iter_child_sms(&'w self, entity: Entity) -> DescendantSMIter<'w, 's, D, F>
     where
         D::ReadOnly: WorldQuery<Item<'w> = &'w InChildSMState>;
 
-    fn iter_parent_sms(&'w self, entity: Entity) -> AncestorIter<'w, 's, D, F>
+    fn iter_parent_sms(&'w self, entity: Entity) -> AncestorSMIter<'w, 's, D, F>
     where
         D::ReadOnly: WorldQuery<Item<'w> = &'w Parent>;
 
@@ -28,21 +28,21 @@ pub trait HierarchyQueryExt<'w, 's, D: QueryData, F: QueryFilter> {
         D::ReadOnly: WorldQuery<Item<'w> = &'w Parent>;
 }
 
-impl<'w, 's, D: QueryData, F: QueryFilter> HierarchyQueryExt<'w, 's, D, F>
+impl<'w, 's, D: QueryData, F: QueryFilter> GearboxQueryExt<'w, 's, D, F>
     for Query<'w, 's, D, F>
 {
-    fn iter_child_sms(&'w self, entity: Entity) -> DescendantIter<'w, 's, D, F>
+    fn iter_child_sms(&'w self, entity: Entity) -> DescendantSMIter<'w, 's, D, F>
     where
         D::ReadOnly: WorldQuery<Item<'w> = &'w InChildSMState>,
     {
-        DescendantIter::new(self, entity)
+        DescendantSMIter::new(self, entity)
     }
 
-    fn iter_parent_sms(&'w self, entity: Entity) -> AncestorIter<'w, 's, D, F>
+    fn iter_parent_sms(&'w self, entity: Entity) -> AncestorSMIter<'w, 's, D, F>
     where
         D::ReadOnly: WorldQuery<Item<'w> = &'w Parent>,
     {
-        AncestorIter::new(self, entity)
+        AncestorSMIter::new(self, entity)
     }
 
     fn current_sm(&'w self, entity: Entity) -> Entity
@@ -81,7 +81,7 @@ impl<'w, 's, D: QueryData, F: QueryFilter> HierarchyQueryExt<'w, 's, D, F>
 /// An [`Iterator`] of [`Entity`]s over the descendants of an [`Entity`].
 ///
 /// Traverses the hierarchy breadth-first.
-pub struct DescendantIter<'w, 's, D: QueryData, F: QueryFilter>
+pub struct DescendantSMIter<'w, 's, D: QueryData, F: QueryFilter>
 where
     D::ReadOnly: WorldQuery<Item<'w> = &'w InChildSMState>,
 {
@@ -89,20 +89,20 @@ where
     next: Option<Entity>,
 }
 
-impl<'w, 's, D: QueryData, F: QueryFilter> DescendantIter<'w, 's, D, F>
+impl<'w, 's, D: QueryData, F: QueryFilter> DescendantSMIter<'w, 's, D, F>
 where
     D::ReadOnly: WorldQuery<Item<'w> = &'w InChildSMState>,
 {
     /// Returns a new [`AncestorIter`].
     pub fn new(parent_query: &'w Query<'w, 's, D, F>, entity: Entity) -> Self {
-        DescendantIter {
+        DescendantSMIter {
             in_child_sm_query: parent_query,
             next: Some(entity),
         }
     }
 }
 
-impl<'w, 's, D: QueryData, F: QueryFilter> Iterator for DescendantIter<'w, 's, D, F>
+impl<'w, 's, D: QueryData, F: QueryFilter> Iterator for DescendantSMIter<'w, 's, D, F>
 where
     D::ReadOnly: WorldQuery<Item<'w> = &'w InChildSMState>,
 {
@@ -119,7 +119,7 @@ where
 
 
 /// An [`Iterator`] of [`Entity`]s over the ancestors of an [`Entity`].
-pub struct AncestorIter<'w, 's, D: QueryData, F: QueryFilter>
+pub struct AncestorSMIter<'w, 's, D: QueryData, F: QueryFilter>
 where
     D::ReadOnly: WorldQuery<Item<'w> = &'w Parent>,
 {
@@ -127,20 +127,20 @@ where
     next: Option<Entity>,
 }
 
-impl<'w, 's, D: QueryData, F: QueryFilter> AncestorIter<'w, 's, D, F>
+impl<'w, 's, D: QueryData, F: QueryFilter> AncestorSMIter<'w, 's, D, F>
 where
     D::ReadOnly: WorldQuery<Item<'w> = &'w Parent>,
 {
     /// Returns a new [`AncestorIter`].
     pub fn new(parent_query: &'w Query<'w, 's, D, F>, entity: Entity) -> Self {
-        AncestorIter {
+        AncestorSMIter {
             parent_sm_query: parent_query,
             next: Some(entity),
         }
     }
 }
 
-impl<'w, 's, D: QueryData, F: QueryFilter> Iterator for AncestorIter<'w, 's, D, F>
+impl<'w, 's, D: QueryData, F: QueryFilter> Iterator for AncestorSMIter<'w, 's, D, F>
 where
     D::ReadOnly: WorldQuery<Item<'w> = &'w Parent>,
 {
