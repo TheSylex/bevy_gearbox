@@ -11,7 +11,7 @@ pub trait HierarchyQueryExt<'w, 's, D: QueryData, F: QueryFilter> {
     where
         D::ReadOnly: WorldQuery<Item<'w> = &'w Parent>;
 
-    fn current_sm(&'w self, entity: Entity) -> Option<Entity>
+    fn current_sm(&'w self, entity: Entity) -> Entity
     where
         D::ReadOnly: WorldQuery<Item<'w> = &'w InChildSMState>;
 
