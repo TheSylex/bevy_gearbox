@@ -1,4 +1,4 @@
-use bevy::utils::HashSet;
+use bevy::platform::collections::HashSet;
 
 // StateAggregator trait for components that track multiple blocking conditions
 pub trait StateAggregator {

@@ -1,4 +1,4 @@
-use bevy::{prelude::*, utils::HashSet};
+use bevy::{platform::collections::HashSet, prelude::*};
 use crate::state_aggregator::StateAggregator;
 
 /// Represents a state machine that is ready to be entered, or that has "finished" and needs to

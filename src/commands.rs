@@ -26,8 +26,8 @@ pub struct TransitionStateCommand<T: Component> {
 }
 
 impl<T: Component> EntityCommand for TransitionStateCommand<T> {
-    fn apply(self, id: Entity, world: &mut World) {
-        world.trigger_targets(Transition(self.state), id);
+    fn apply(self, mut entity: EntityWorldMut) {
+        entity.trigger(Transition(self.state));
     }
 }
 
@@ -50,18 +50,12 @@ pub struct TryExitStateCommand<T, N> {
 }
 
 impl<T: Component + Clone, N: Component + Clone> EntityCommand for TryExitStateCommand<T, N> {
-    fn apply(self, id: Entity, world: &mut World) {
-        if let Some(current_state) = world.entity(id).get::<T>() {
-            // “Exit” old state
-            world.trigger_targets(OnExitState(current_state.clone()), id);
-
-            // Remove + insert via entity_mut instead of world.commands():
-            let mut e = world.entity_mut(id);
-            e.remove::<T>();
-            e.insert(self.new_state.clone());
-
-            // “Enter” new state
-            world.trigger_targets(OnEnterState(self.new_state), id);
+    fn apply(self, mut entity: EntityWorldMut) {
+        if let Some(current_state) = entity.get::<T>() {
+            entity.trigger(OnExitState(current_state.clone()));
+            entity.remove::<T>();
+            entity.insert(self.new_state.clone());
+            entity.trigger(OnEnterState(self.new_state.clone()));
         }
     }
 }

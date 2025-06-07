@@ -1,4 +1,4 @@
-use bevy::{hierarchy::HierarchyQueryExt, prelude::*};
+use bevy::{prelude::*};
 use crate::prelude::*;
 
 pub mod commands;
@@ -27,7 +27,7 @@ fn set_child_working_system(
     child_sm_query: Query<&RestingState>,
     mut commands: Commands,
 ) {
-    let parent_sm_entity = trigger.entity();
+    let parent_sm_entity = trigger.target();
     let child_sm_entity = trigger.event().0.0;
 
     if let Ok(resting_state) = child_sm_query.get(child_sm_entity) {
@@ -53,7 +53,7 @@ fn early_exit_child_state_trigger_system(
     child_sm_query: Query<Entity, Without<RestingState>>,
     mut commands: Commands,
 ) {
-    let parent_sm_entity = trigger.entity();
+    let parent_sm_entity = trigger.target();
 
     let Ok(in_child_sm) = parent_sm_query.get(parent_sm_entity) else {
         return;
@@ -70,11 +70,11 @@ fn early_exit_child_state_trigger_system(
 /// InChildSMState pointing to this entity and transitions it to FinishedChildSMState.
 fn return_to_parent_sm_system(
     trigger: Trigger<OnEnterState<RestingState>>,
-    parent_query: Query<&Parent>,
+    parent_query: Query<&ChildOf>,
     child_query: Query<&InChildSMState>,
     mut commands: Commands,
 ) {
-    let child_sm_entity = trigger.entity();
+    let child_sm_entity = trigger.target();
 
     // Find the closest ancestor that has an InChildSMState pointing to this entity
     for ancestor in parent_query.iter_ancestors(child_sm_entity) {

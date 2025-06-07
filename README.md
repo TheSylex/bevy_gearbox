@@ -140,7 +140,12 @@ fn current_state_system(
 - **State Blocking**: Prevent transitions based on conditions (e.g., cooldowns, resource requirements)
 - **Automatic State Management**: Handle complex parent-child state transitions automatically
 
----
+## Version Compatibility
+
+| bevy_gearbox | bevy |
+|--------------|------|
+| 0.2.0        | 0.16 |
+| 0.1.2        | 0.16 |
 
 ## TODO
 
