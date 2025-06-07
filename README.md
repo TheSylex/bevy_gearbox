@@ -98,6 +98,22 @@ cargo add bevy_gearbox
 use bevy::prelude::*;
 use bevy_gearbox::GearboxPlugin;
 
+#[derive(Component)]
+struct Player;
+
+struct IdleState;
+
+struct RunningState;
+
+struct JumpingState;
+
+state_machine!(
+    Player;
+    IdleState,
+    RunningState,
+    JumpingState,
+)
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
