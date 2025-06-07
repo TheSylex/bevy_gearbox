@@ -142,10 +142,10 @@ fn current_state_system(
 
 ## Version Compatibility
 
-| bevy_gearbox | bevy |
-|--------------|------|
-| 0.2.0        | 0.16 |
-| 0.1.2        | 0.16 |
+| bevy_gearbox_macros | bevy_gearbox | bevy |
+|---------------------|--------------|------|
+| 0.2.0               | 0.2.0        | 0.16 |
+| 0.1.0               | 0.1.2        | 0.15 |
 
 ## TODO
 
