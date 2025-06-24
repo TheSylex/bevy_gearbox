@@ -94,6 +94,11 @@ impl Plugin for GearboxPlugin {
         app 
             .add_observer(set_child_working_system)
             .add_observer(return_to_parent_sm_system)
-            .add_observer(early_exit_child_state_trigger_system);
+            .add_observer(early_exit_child_state_trigger_system)
+            .register_type::<RestingState>()
+            .register_type::<WorkingState>()
+            .register_type::<FizzledState>()
+            .register_type::<InChildSMState>()
+            .register_type::<FinishedChildSMState>();
     }
 }

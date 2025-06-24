@@ -3,7 +3,7 @@ use crate::state_aggregator::StateAggregator;
 
 /// Represents a state machine that is ready to be entered, or that has "finished" and needs to
 /// pass control back up the hierarchy.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, Reflect)]
 pub struct RestingState {
     blockers: HashSet<String>,
 }
@@ -37,16 +37,16 @@ impl StateAggregator for RestingState {
 }
 
 /// The first state a child SM enters when activated by its parent.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 pub struct WorkingState;
 
 /// Represents a state machine that has failed to finish.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 pub struct FizzledState;
 
 /// Added when a state machine drops into another state. Denotes the sub state a SM is in.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 pub struct InChildSMState(pub Entity);
 
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, Reflect)]
 pub struct FinishedChildSMState(pub Entity);
