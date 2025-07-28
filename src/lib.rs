@@ -296,49 +296,94 @@ pub fn get_all_leaf_states(
     leaves
 }
 
-/// A trait for marker components that can be added to state entities.
-/// The `add_marker_on_enter_state` and `remove_marker_on_exit_state` systems
-/// will automatically add/remove this component on the state machine's root entity
-/// as states are entered and exited.
-pub trait StateMarker: Component + Clone {}
+/// A component that when added to a state entity, will insert the contained component
+/// `T` into the state machine's root entity when this state is entered.
+#[derive(Component)]
+pub struct InsertRootWhileActive<T: Component>(pub T);
 
-/// A generic system that adds a `StateMarker` component `T` to the state machine's
-/// root entity when a state with that marker is entered.
-pub fn add_marker_on_enter_state<T: StateMarker>(
+/// A component that when added to a state entity, will remove the component type `T`
+/// from the state machine's root entity when this state is entered, and restore
+/// the stored value when the state is exited.
+#[derive(Component)]
+pub struct RemoveRootWhileActive<T: Component + Clone>(pub T);
+
+/// A generic system that adds a component `T` to the state machine's root entity
+/// when a state with `InsertRootWhileActive<T>` is entered.
+pub fn insert_root_while_enter<T: Component + Clone>(
     trigger: Trigger<EnterState>,
-    query: Query<&T>,
+    query: Query<&InsertRootWhileActive<T>>,
     child_of_query: Query<&ChildOf>,
     mut commands: Commands,
 ) {
     let entered_state = trigger.target();
-    let Ok(marker) = query.get(entered_state) else {
+    let Ok(insert_component) = query.get(entered_state) else {
         return;
     };
 
     let root_entity = child_of_query.root_ancestor(entered_state);
 
     if root_entity != entered_state {
-        commands.entity(root_entity).insert(marker.clone());
+        commands.entity(root_entity).insert(insert_component.0.clone());
     }
 }
 
-/// A generic system that removes a `StateMarker` component `T` from the state machine's
-/// root entity when a state with that marker is exited.
-pub fn remove_marker_on_exit_state<T: StateMarker>(
+/// A generic system that removes a component `T` from the state machine's root entity
+/// when a state with `InsertRootWhileActive<T>` is exited.
+pub fn insert_root_while_exit<T: Component>(
     trigger: Trigger<ExitState>,
-    query: Query<&T>,
+    query: Query<&InsertRootWhileActive<T>>,
     child_of_query: Query<&ChildOf>,
     mut commands: Commands,
 ) {
     let exited_state = trigger.target();
     if !query.contains(exited_state) {
         return;
-    }
+    };
 
     let root_entity = child_of_query.root_ancestor(exited_state);
 
     if root_entity != exited_state {
         commands.entity(root_entity).remove::<T>();
+    }
+}
+
+/// A generic system that removes a component `T` from the state machine's root entity
+/// when a state with `RemoveRootWhileActive<T>` is entered.
+pub fn remove_root_while_enter<T: Component + Clone>(
+    trigger: Trigger<EnterState>,
+    query: Query<&RemoveRootWhileActive<T>>,
+    child_of_query: Query<&ChildOf>,
+    mut commands: Commands,
+) {
+    let entered_state = trigger.target();
+    if !query.contains(entered_state) {
+        return;
+    };
+
+    let root_entity = child_of_query.root_ancestor(entered_state);
+
+    if root_entity != entered_state {
+        commands.entity(root_entity).remove::<T>();
+    }
+}
+
+/// A generic system that restores a component `T` to the state machine's root entity
+/// when a state with `RemoveRootWhileActive<T>` is exited, using the stored clone.
+pub fn remove_root_while_exit<T: Component + Clone>(
+    trigger: Trigger<ExitState>,
+    query: Query<&RemoveRootWhileActive<T>>,
+    child_of_query: Query<&ChildOf>,
+    mut commands: Commands,
+) {
+    let exited_state = trigger.target();
+    let Ok(remove_component) = query.get(exited_state) else {
+        return;
+    };
+
+    let root_entity = child_of_query.root_ancestor(exited_state);
+
+    if root_entity != exited_state {
+        commands.entity(root_entity).insert(remove_component.0.clone());
     }
 }
 
@@ -447,19 +492,22 @@ pub mod prelude {
         InitialState,
         InitializeMachine,
         Inactive,
+        InsertRootWhileActive,
         Parallel,
+        RemoveRootWhileActive,
         TransitionListener,
         // Traits
         ComplexTransitionListener,
         Guard,
-        StateMarker,
         // Systems
-        add_marker_on_enter_state,
         complex_transition_listener,
         get_all_leaf_states,
-        remove_marker_on_exit_state,
-        transition_listener,
+        insert_root_while_enter,
+        insert_root_while_exit,
         propagate_event,
+        remove_root_while_enter,
+        remove_root_while_exit,
+        transition_listener,
     };
 }
 
