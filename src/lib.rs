@@ -111,6 +111,25 @@ pub fn complex_transition_listener<T: ComplexTransitionListener>(
 #[derive(Component)]
 pub struct Parallel;
 
+/// A component that enables history behavior for a state.
+/// When a state with this component is exited and later re-entered,
+/// it will restore previously active substates instead of using InitialState.
+/// Defines the type of history behavior for a state.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum History {
+    /// Remember only the direct child state that was active when last exited.
+    /// On re-entry, restore that direct child and follow normal InitialState logic from there.
+    Shallow,
+    /// Remember the entire hierarchy of substates that were active when last exited.
+    /// On re-entry, restore the exact nested hierarchy that was previously active.
+    Deep,
+}
+
+/// A component that stores the previously active states for history restoration.
+/// This is automatically managed by the history systems.
+#[derive(Component)]
+pub struct HistoryState(pub HashSet<Entity>);
+
 /// A component that specifies the initial substate for a state.
 /// When a state is entered, the machine will recursively drill down through `InitialState`
 /// components to find the leaf state(s) to activate.
@@ -133,6 +152,7 @@ pub struct ExitState;
 /// The core system that observes `Transition` events and orchestrates the state change.
 /// It calculates the exit and entry paths, sends `ExitState` and `EnterState` events
 /// to the appropriate states, and updates the machine's `CurrentState`.
+/// Also handles history state saving and restoration.
 pub fn transition_observer(
     trigger: Trigger<Transition>,
     mut machine_query: Query<&mut CurrentState>,
@@ -140,6 +160,8 @@ pub fn transition_observer(
     parallel_query: Query<&Parallel>,
     children_query: Query<&Children>,
     initial_state_query: Query<&InitialState>,
+    history_query: Query<&History>,
+    mut history_state_query: Query<&mut HistoryState>,
     child_of_query: Query<&ChildOf>,
     mut commands: Commands,
 ) {
@@ -172,6 +194,8 @@ pub fn transition_observer(
             &initial_state_query,
             &children_query,
             &parallel_query,
+            &history_query,
+            &history_state_query,
             &child_of_query,
             &mut commands,
         );
@@ -211,8 +235,45 @@ pub fn transition_observer(
     // The states to enter are those not in the common path.
     let states_to_enter = &enter_path[..enter_path.len() - lca_depth];
 
-    // Exit from child to parent
+    // Exit from child to parent, saving history if needed
     for entity in states_to_exit {
+        // Save history if this state has history behavior
+        if let Ok(history) = history_query.get(*entity) {
+            let states_to_save = match history {
+                History::Shallow => {
+                    // For shallow history, only save direct children that are currently active
+                    current_state.0.iter()
+                        .filter(|&&state| {
+                            if let Ok(parent) = child_of_query.get(state).map(|child_of| child_of.parent()) {
+                                parent == *entity
+                            } else {
+                                false
+                            }
+                        })
+                        .copied()
+                        .collect()
+                }
+                History::Deep => {
+                    // For deep history, save all descendant states that are currently active
+                    current_state.0.iter()
+                        .filter(|&&state| {
+                            state == *entity || child_of_query
+                                .iter_ancestors(state)
+                                .any(|ancestor| ancestor == *entity)
+                        })
+                        .copied()
+                        .collect()
+                }
+            };
+            
+            // Insert or update the history state
+            if let Ok(mut existing_history) = history_state_query.get_mut(*entity) {
+                existing_history.0 = states_to_save;
+            } else {
+                commands.entity(*entity).insert(HistoryState(states_to_save));
+            }
+        }
+        
         commands.trigger_targets(ExitState, *entity);
     }
 
@@ -230,6 +291,8 @@ pub fn transition_observer(
         &initial_state_query,
         &children_query,
         &parallel_query,
+        &history_query,
+        &history_state_query,
         &child_of_query,
         &mut commands,
     );
@@ -247,6 +310,8 @@ pub fn get_all_leaf_states(
     initial_state_query: &Query<&InitialState>,
     children_query: &Query<&Children>,
     parallel_query: &Query<&Parallel>,
+    history_query: &Query<&History>,
+    history_state_query: &Query<&mut HistoryState>,
     child_of_query: &Query<&ChildOf>,
     commands: &mut Commands,
 ) -> HashSet<Entity> {
@@ -264,6 +329,31 @@ pub fn get_all_leaf_states(
                     // Enter the state for the region itself
                     commands.trigger_targets(EnterState, *child);
                     stack.push(*child);
+                }
+            }
+        }
+        // Check for history first, then fall back to initial state
+        else if let (Ok(history), Ok(history_state)) = (history_query.get(entity), history_state_query.get(entity)) {
+            found_next = true;
+            
+            match history {
+                History::Shallow => {
+                    // For shallow history, restore direct children and let them drill down normally
+                    for &saved_state in &history_state.0 {
+                        commands.trigger_targets(EnterState, saved_state);
+                        stack.push(saved_state);
+                    }
+                }
+                History::Deep => {
+                    // For deep history, restore the exact hierarchy that was saved
+                    for &saved_state in &history_state.0 {
+                        if saved_state != entity {
+                            commands.trigger_targets(EnterState, saved_state);
+                        }
+                        leaves.insert(saved_state);
+                    }
+                    // Skip normal processing for deep history
+                    continue;
                 }
             }
         }
@@ -489,6 +579,7 @@ pub mod prelude {
         Active,
         CurrentState,
         Guards,
+        HistoryState,
         InitialState,
         InitializeMachine,
         Inactive,
@@ -496,6 +587,8 @@ pub mod prelude {
         Parallel,
         RemoveRootWhileActive,
         TransitionListener,
+        // Enums
+        History,
         // Traits
         ComplexTransitionListener,
         Guard,
