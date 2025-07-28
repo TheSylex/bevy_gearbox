@@ -1,5 +1,26 @@
 use bevy::{platform::collections::HashSet, prelude::*};
-use std::marker::PhantomData;
+
+use crate::{guards::Guards, history::{History, HistoryState}, prelude::TransitionListener};
+
+pub mod active;
+pub mod guards;
+pub mod history;
+pub mod prelude;
+pub mod state_component;
+pub mod transition_listener;
+
+/// The main plugin for `bevy_gearbox`. Registers events and adds the core systems.
+pub struct GearboxPlugin;
+
+impl Plugin for GearboxPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(transition_observer)
+            .add_observer(active::add_active)
+            .add_observer(active::add_inactive)
+            .add_observer(initialize_state_machine)
+            .add_observer(transition_listener::transition_listener::<InitializeMachine>);
+    }
+}
 
 /// Defines a transition between two states in the state machine.
 pub struct Connection {
@@ -20,115 +41,11 @@ pub struct Transition {
     pub connection: Connection,
 }
 
-/// A component that listens for a specific event `E` and triggers a `Transition`
-/// when the event occurs on this entity.
-#[derive(Component)]
-pub struct TransitionListener<E: Event> {
-    connection: Connection,
-    _marker: PhantomData<E>,
-}
-
-impl<E: Event> TransitionListener<E> {
-    pub fn new(connection: Connection) -> Self {
-        Self {
-            connection,
-            _marker: PhantomData,
-        }
-    }
-}
-
-/// A system that handles events for entities with a `TransitionListener`.
-/// When an event `E` is triggered on an entity with a `TransitionListener<E>`,
-/// this system fires a `Transition` event targeting the state machine's root.
-pub fn transition_listener<E: Event>(
-    trigger: Trigger<E>,
-    listener_query: Query<&TransitionListener<E>>,
-    child_of_query: Query<&ChildOf>,
-    mut commands: Commands,
-) {
-    let target = trigger.target();
-    let Ok(listener) = listener_query.get(target) else {
-        return;
-    };
-
-    let root_entity = child_of_query.root_ancestor(target);
-
-    commands.trigger_targets(
-        Transition {
-            source: target,
-            connection: Connection {
-                target: listener.connection.target,
-                guards: listener.connection.guards,
-            },
-        },
-        root_entity,
-    );
-}
-
-/// A trait for more complex transition logic where the target state or guards
-/// depend on the content of the triggering event.
-pub trait ComplexTransitionListener: Component {
-    /// The type of event this listener reacts to.
-    type Event;
-
-    /// A method to dynamically determine the `Connection` based on the event data.
-    fn get_connection(&self, event: &Self::Event) -> Connection;
-}
-
-/// A system that handles events for entities with a `ComplexTransitionListener`.
-/// This allows for dynamic transitions where the target state is determined by the
-/// event's data.
-pub fn complex_transition_listener<T: ComplexTransitionListener>(
-    trigger: Trigger<T::Event>,
-    listener_query: Query<&T>,
-    child_of_query: Query<&ChildOf>,
-    mut commands: Commands,
-) {
-    let target = trigger.target();
-    let Ok(listener) = listener_query.get(target) else {
-        return;
-    };
-
-    let root_entity = child_of_query.root_ancestor(target);
-
-    let connection = listener.get_connection(&trigger.event());
-
-    commands.trigger_targets(
-        Transition {
-            source: target,
-            connection: Connection {
-                target: connection.target,
-                guards: connection.guards,
-            },
-        },
-        root_entity,
-    );
-}
-
 /// A marker component for a state that has parallel (orthogonal) regions.
 /// When a state with this component is entered, the machine will simultaneously enter
 /// the initial state of each of its direct children.
 #[derive(Component)]
 pub struct Parallel;
-
-/// A component that enables history behavior for a state.
-/// When a state with this component is exited and later re-entered,
-/// it will restore previously active substates instead of using InitialState.
-/// Defines the type of history behavior for a state.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum History {
-    /// Remember only the direct child state that was active when last exited.
-    /// On re-entry, restore that direct child and follow normal InitialState logic from there.
-    Shallow,
-    /// Remember the entire hierarchy of substates that were active when last exited.
-    /// On re-entry, restore the exact nested hierarchy that was previously active.
-    Deep,
-}
-
-/// A component that stores the previously active states for history restoration.
-/// This is automatically managed by the history systems.
-#[derive(Component)]
-pub struct HistoryState(pub HashSet<Entity>);
 
 /// A component that specifies the initial substate for a state.
 /// When a state is entered, the machine will recursively drill down through `InitialState`
@@ -386,158 +303,6 @@ pub fn get_all_leaf_states(
     leaves
 }
 
-/// A component that when added to a state entity, will insert the contained component
-/// `T` into the state machine's root entity when this state is entered.
-#[derive(Component)]
-pub struct InsertRootWhileActive<T: Component>(pub T);
-
-/// A component that when added to a state entity, will remove the component type `T`
-/// from the state machine's root entity when this state is entered, and restore
-/// the stored value when the state is exited.
-#[derive(Component)]
-pub struct RemoveRootWhileActive<T: Component + Clone>(pub T);
-
-/// A generic system that adds a component `T` to the state machine's root entity
-/// when a state with `InsertRootWhileActive<T>` is entered.
-pub fn insert_root_while_enter<T: Component + Clone>(
-    trigger: Trigger<EnterState>,
-    query: Query<&InsertRootWhileActive<T>>,
-    child_of_query: Query<&ChildOf>,
-    mut commands: Commands,
-) {
-    let entered_state = trigger.target();
-    let Ok(insert_component) = query.get(entered_state) else {
-        return;
-    };
-
-    let root_entity = child_of_query.root_ancestor(entered_state);
-
-    if root_entity != entered_state {
-        commands.entity(root_entity).insert(insert_component.0.clone());
-    }
-}
-
-/// A generic system that removes a component `T` from the state machine's root entity
-/// when a state with `InsertRootWhileActive<T>` is exited.
-pub fn insert_root_while_exit<T: Component>(
-    trigger: Trigger<ExitState>,
-    query: Query<&InsertRootWhileActive<T>>,
-    child_of_query: Query<&ChildOf>,
-    mut commands: Commands,
-) {
-    let exited_state = trigger.target();
-    if !query.contains(exited_state) {
-        return;
-    };
-
-    let root_entity = child_of_query.root_ancestor(exited_state);
-
-    if root_entity != exited_state {
-        commands.entity(root_entity).remove::<T>();
-    }
-}
-
-/// A generic system that removes a component `T` from the state machine's root entity
-/// when a state with `RemoveRootWhileActive<T>` is entered.
-pub fn remove_root_while_enter<T: Component + Clone>(
-    trigger: Trigger<EnterState>,
-    query: Query<&RemoveRootWhileActive<T>>,
-    child_of_query: Query<&ChildOf>,
-    mut commands: Commands,
-) {
-    let entered_state = trigger.target();
-    if !query.contains(entered_state) {
-        return;
-    };
-
-    let root_entity = child_of_query.root_ancestor(entered_state);
-
-    if root_entity != entered_state {
-        commands.entity(root_entity).remove::<T>();
-    }
-}
-
-/// A generic system that restores a component `T` to the state machine's root entity
-/// when a state with `RemoveRootWhileActive<T>` is exited, using the stored clone.
-pub fn remove_root_while_exit<T: Component + Clone>(
-    trigger: Trigger<ExitState>,
-    query: Query<&RemoveRootWhileActive<T>>,
-    child_of_query: Query<&ChildOf>,
-    mut commands: Commands,
-) {
-    let exited_state = trigger.target();
-    let Ok(remove_component) = query.get(exited_state) else {
-        return;
-    };
-
-    let root_entity = child_of_query.root_ancestor(exited_state);
-
-    if root_entity != exited_state {
-        commands.entity(root_entity).insert(remove_component.0.clone());
-    }
-}
-
-/// A component that holds a set of conditions that must be met for a transition to occur.
-#[derive(Component)]
-pub struct Guards {
-    /// A set of string identifiers for the guards. For a transition to be allowed,
-    /// this set must be empty.
-    pub guards: HashSet<String>,
-}
-
-impl Guards {
-    /// Creates a new, empty set of guards.
-    pub fn new() -> Self {
-        Self {
-            guards: HashSet::new(),
-        }
-    }
-
-    /// Adds a guard to the set. The guard is identified by its name.
-    pub fn add_guard(&mut self, guard: impl Guard) {
-        self.guards.insert(guard.name());
-    }
-
-    /// Removes a guard from the set.
-    pub fn remove_guard(&mut self, guard: impl Guard) {
-        self.guards.remove(&guard.name());
-    }
-
-    /// Checks if the guard conditions are met. Currently, this just checks if the set is empty.
-    pub fn check(&self) -> bool {
-        self.guards.is_empty()
-    }
-}
-
-/// A trait for components that act as a guard. Guards are components that can be
-/// added or removed from a `Guards` entity to dynamically enable or disable transitions.
-pub trait Guard: Component {
-    /// Returns the unique string identifier for this guard type.
-    fn name(&self) -> String;
-}
-
-#[derive(Component)]
-pub struct Active;
-
-#[derive(Component)]
-pub struct Inactive;
-
-fn add_active(
-    trigger: Trigger<EnterState>,
-    mut commands: Commands,
-) {
-    let target = trigger.target();
-    commands.entity(target).remove::<Inactive>().insert(Active);
-}
-
-fn add_inactive(
-    trigger: Trigger<ExitState>,
-    mut commands: Commands,
-) {
-    let target = trigger.target();
-    commands.entity(target).remove::<Active>().insert(Inactive);
-}
-
 pub fn propagate_event<T: Event + Clone>(
     trigger: Trigger<T>,
     query: Query<&CurrentState>,
@@ -564,55 +329,4 @@ fn initialize_state_machine(
 ) {
     let target = trigger.target();
     commands.trigger_targets(InitializeMachine, target);
-}
-
-/// A prelude for easily importing the most common types from the library.
-pub mod prelude {
-    pub use crate::{
-        // Structs
-        Connection,
-        // Events
-        EnterState,
-        ExitState,
-        Transition,
-        // Components
-        Active,
-        CurrentState,
-        Guards,
-        HistoryState,
-        InitialState,
-        InitializeMachine,
-        Inactive,
-        InsertRootWhileActive,
-        Parallel,
-        RemoveRootWhileActive,
-        TransitionListener,
-        // Enums
-        History,
-        // Traits
-        ComplexTransitionListener,
-        Guard,
-        // Systems
-        complex_transition_listener,
-        get_all_leaf_states,
-        insert_root_while_enter,
-        insert_root_while_exit,
-        propagate_event,
-        remove_root_while_enter,
-        remove_root_while_exit,
-        transition_listener,
-    };
-}
-
-/// The main plugin for `bevy_gearbox`. Registers events and adds the core systems.
-pub struct GearboxPlugin;
-
-impl Plugin for GearboxPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_observer(transition_observer)
-            .add_observer(add_active)
-            .add_observer(add_inactive)
-            .add_observer(initialize_state_machine)
-            .add_observer(transition_listener::<InitializeMachine>);
-    }
 }

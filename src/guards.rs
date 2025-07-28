@@ -1,0 +1,40 @@
+use bevy::{platform::collections::HashSet, prelude::*};
+
+/// A component that holds a set of conditions that must be met for a transition to occur.
+#[derive(Component)]
+pub struct Guards {
+    /// A set of string identifiers for the guards. For a transition to be allowed,
+    /// this set must be empty.
+    pub guards: HashSet<String>,
+}
+
+impl Guards {
+    /// Creates a new, empty set of guards.
+    pub fn new() -> Self {
+        Self {
+            guards: HashSet::new(),
+        }
+    }
+
+    /// Adds a guard to the set. The guard is identified by its name.
+    pub fn add_guard(&mut self, guard: impl Guard) {
+        self.guards.insert(guard.name());
+    }
+
+    /// Removes a guard from the set.
+    pub fn remove_guard(&mut self, guard: impl Guard) {
+        self.guards.remove(&guard.name());
+    }
+
+    /// Checks if the guard conditions are met. Currently, this just checks if the set is empty.
+    pub fn check(&self) -> bool {
+        self.guards.is_empty()
+    }
+}
+
+/// A trait for components that act as a guard. Guards are components that can be
+/// added or removed from a `Guards` entity to dynamically enable or disable transitions.
+pub trait Guard: Component {
+    /// Returns the unique string identifier for this guard type.
+    fn name(&self) -> String;
+}
