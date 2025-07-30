@@ -1,7 +1,8 @@
-use bevy::{platform::collections::HashSet, prelude::*};
+use bevy::{platform::collections::HashSet, prelude::*, reflect::Reflect};
 
 /// A component that holds a set of conditions that must be met for a transition to occur.
-#[derive(Component)]
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
 pub struct Guards {
     /// A set of string identifiers for the guards. For a transition to be allowed,
     /// this set must be empty.

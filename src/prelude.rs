@@ -14,6 +14,7 @@ pub use crate::{
     history::HistoryState,
     InitialState,
     InitializeMachine,
+    StateMachineRoot,
     state_component::InsertRootWhileActive,
     Parallel,
     state_component::RemoveRootWhileActive,
@@ -32,4 +33,6 @@ pub use crate::{
     state_component::remove_root_while_enter,
     state_component::remove_root_while_exit,
     transition_listener::transition_listener,
+    // Functions
+    find_state_machine_root,
 };

@@ -1,6 +1,9 @@
-use bevy::{platform::collections::HashSet, prelude::*};
+use bevy::{platform::collections::HashSet, prelude::*, reflect::Reflect};
+use bevy_ecs::component::Mutable;
+use bevy_ecs::{component::StorageType, reflect::ReflectMapEntities};
+use bevy_ecs::entity::MapEntities;
 
-use crate::{guards::Guards, history::{History, HistoryState}, prelude::TransitionListener};
+use crate::{active::{Active, Inactive}, guards::Guards, history::{History, HistoryState}, prelude::TransitionListener};
 
 pub mod active;
 pub mod guards;
@@ -19,15 +22,58 @@ impl Plugin for GearboxPlugin {
             .add_observer(active::add_inactive)
             .add_observer(initialize_state_machine)
             .add_observer(transition_listener::transition_listener::<InitializeMachine>);
+
+        app.register_type::<StateMachineRoot>();
+        app.register_type::<Connection>();
+        app.register_type::<Parallel>();
+        app.register_type::<InitialState>();
+        app.register_type::<CurrentState>();
+        app.register_type::<History>();
+        app.register_type::<HistoryState>();
+        app.register_type::<ChildOf>();
+        app.register_type::<Guards>();
+        app.register_type::<Active>();
+        app.register_type::<Inactive>();
+        app.register_type::<EnterState>();
+        app.register_type::<ExitState>();
+        app.register_type::<TransitionListener<InitializeMachine>>();
+        app.register_type::<OnAdd>();
     }
 }
 
-/// Defines a transition between two states in the state machine.
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct StateMachineRoot;
+
+pub fn find_state_machine_root(
+    entity: Entity,
+    child_of_query: &Query<&ChildOf>,
+    state_machine_root_query: &Query<&StateMachineRoot>,
+) -> Option<Entity> {
+    for entity in child_of_query.iter_ancestors(entity) {
+        if state_machine_root_query.get(entity).is_ok() {
+            return Some(entity);
+        }
+    }
+    None
+}
+
+#[derive(Reflect, Clone, Debug)]
+#[reflect(MapEntities)]
 pub struct Connection {
     /// The target state entity to transition to.
     pub target: Entity,
     /// An optional entity holding `Guards` that must be satisfied for this transition to occur.
     pub guards: Option<Entity>,
+}
+
+impl MapEntities for Connection {
+    fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {
+        self.target = entity_mapper.get_mapped(self.target);
+        if let Some(guards) = self.guards {
+            self.guards = Some(entity_mapper.get_mapped(guards));
+        }
+    }
 }
 
 /// An event that triggers a state transition in a machine.
@@ -44,26 +90,39 @@ pub struct Transition {
 /// A marker component for a state that has parallel (orthogonal) regions.
 /// When a state with this component is entered, the machine will simultaneously enter
 /// the initial state of each of its direct children.
-#[derive(Component)]
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
 pub struct Parallel;
 
 /// A component that specifies the initial substate for a state.
 /// When a state is entered, the machine will recursively drill down through `InitialState`
 /// components to find the leaf state(s) to activate.
-#[derive(Component)]
+#[derive(Reflect)]
+#[reflect(Component)]
 pub struct InitialState(pub Entity);
+
+impl Component for InitialState {
+    const STORAGE_TYPE: StorageType = StorageType::Table;
+
+    type Mutability = Mutable;
+    
+    fn map_entities<E: EntityMapper>(this: &mut Self, entity_mapper: &mut E) {
+        this.0 = entity_mapper.get_mapped(this.0);
+    }
+}
 
 /// A component on the state machine's root entity that tracks the current active
 /// leaf states. In a machine with parallel regions, this can contain multiple entities.
-#[derive(Component)]
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
 pub struct CurrentState(pub HashSet<Entity>);
 
 /// An event that is triggered on a state entity when it is being entered.
-#[derive(Event)]
+#[derive(Event, Reflect, Default)]
 pub struct EnterState;
 
 /// An event that is triggered on a state entity when it is being exited.
-#[derive(Event)]
+#[derive(Event, Reflect, Default)]
 pub struct ExitState;
 
 /// The core system that observes `Transition` events and orchestrates the state change.
@@ -319,14 +378,28 @@ pub fn propagate_event<T: Event + Clone>(
 }
 
 /// An event fired when the state machine should be initialized to its initial state.
-#[derive(Event, Clone)]
+#[derive(Event, Clone, Reflect, Default)]
 pub struct InitializeMachine;
 
 /// Triggers the InitializeMachine event when AbilityMachine component is added.
 fn initialize_state_machine(
-    trigger: Trigger<OnAdd, TransitionListener::<InitializeMachine>>,
+    trigger: Trigger<OnAdd, StateMachineRoot>,
+    initial_state_query: Query<&InitialState>,
     mut commands: Commands,
 ) {
     let target = trigger.target();
-    commands.trigger_targets(InitializeMachine, target);
+    let Ok(initial_state) = initial_state_query.get(target) else {
+        return;
+    };
+
+    commands.trigger_targets(
+        Transition {
+            source: target,
+            connection: Connection {
+                target: initial_state.0,
+                guards: None,
+            },
+        },
+        target,
+    );
 }
