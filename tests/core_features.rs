@@ -159,10 +159,7 @@ fn create_basic_machine(commands: &mut Commands) -> (Entity, Entity, Entity) {
         Name::new("TestMachine"),
         InitialState(state_a),
         CurrentState(bevy::platform::collections::HashSet::new()),
-        TransitionListener::<InitializeMachine>::new(Connection {
-            target: state_a,
-            guards: None,
-        }),
+        StateMachineRoot,
     )).id();
     
     commands.entity(machine).add_child(state_a);

@@ -13,7 +13,6 @@ pub use crate::{
     guards::Guards,
     history::HistoryState,
     InitialState,
-    InitializeMachine,
     StateMachineRoot,
     state_component::InsertRootWhileActive,
     Parallel,

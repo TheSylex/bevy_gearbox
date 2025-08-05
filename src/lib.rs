@@ -3,7 +3,7 @@ use bevy_ecs::component::Mutable;
 use bevy_ecs::{component::StorageType, reflect::ReflectMapEntities};
 use bevy_ecs::entity::MapEntities;
 
-use crate::{active::{Active, Inactive}, guards::Guards, history::{History, HistoryState}, prelude::TransitionListener};
+use crate::{active::{Active, Inactive}, guards::Guards, history::{History, HistoryState}};
 
 pub mod active;
 pub mod guards;
@@ -21,7 +21,7 @@ impl Plugin for GearboxPlugin {
             .add_observer(active::add_active)
             .add_observer(active::add_inactive)
             .add_observer(initialize_state_machine)
-            .add_observer(transition_listener::transition_listener::<InitializeMachine>);
+            .add_observer(always);
 
         app.register_type::<StateMachineRoot>();
         app.register_type::<Connection>();
@@ -36,8 +36,9 @@ impl Plugin for GearboxPlugin {
         app.register_type::<Inactive>();
         app.register_type::<EnterState>();
         app.register_type::<ExitState>();
-        app.register_type::<TransitionListener<InitializeMachine>>();
         app.register_type::<OnAdd>();
+
+        app.add_systems(Update, check_always_system);
     }
 }
 
@@ -377,10 +378,6 @@ pub fn propagate_event<T: Event + Clone>(
     }
 }
 
-/// An event fired when the state machine should be initialized to its initial state.
-#[derive(Event, Clone, Reflect, Default)]
-pub struct InitializeMachine;
-
 /// Triggers the InitializeMachine event when AbilityMachine component is added.
 fn initialize_state_machine(
     trigger: Trigger<OnAdd, StateMachineRoot>,
@@ -402,4 +399,63 @@ fn initialize_state_machine(
         },
         target,
     );
+}
+
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct Always {
+    pub target: Entity,
+    pub guards: Option<Entity>,
+}
+
+fn always(
+    trigger: Trigger<EnterState>,
+    query: Query<&Always>,
+    child_of_query: Query<&ChildOf>,
+    state_machine_root_query: Query<&StateMachineRoot>,
+    mut commands: Commands,
+) {
+    let target = trigger.target();
+    let Ok(always) = query.get(target) else {
+        return;
+    };
+    
+    let root_entity = find_state_machine_root(target, &child_of_query, &state_machine_root_query);
+
+    let Some(root_entity) = root_entity else {
+        return;
+    };
+
+    commands.trigger_targets(Transition {
+        source: target,
+        connection: Connection {
+            target: always.target,
+            guards: always.guards,
+        },
+    }, root_entity);
+}
+
+fn check_always_system(
+    query: Query<(Entity, &Always, &Guards), With<Active>>,
+    child_of_query: Query<&ChildOf>,
+    state_machine_root_query: Query<&StateMachineRoot>,
+    mut commands: Commands,
+) {
+    for (entity, always, guards) in query.iter() {
+        if guards.check() {
+            let root_entity = find_state_machine_root(entity, &child_of_query, &state_machine_root_query);
+        
+            let Some(root_entity) = root_entity else {
+                return;
+            };
+
+            commands.trigger_targets(Transition {
+                source: entity,
+                connection: Connection {
+                    target: always.target,
+                    guards: always.guards,
+                },
+            }, root_entity);
+        }
+    }
 }

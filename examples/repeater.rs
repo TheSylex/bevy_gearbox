@@ -62,10 +62,7 @@ fn setup(mut commands: Commands) {
             InitialState(ready),
             CurrentState(HashSet::new()),
             Name::new("AbilityStateMachine"),
-            TransitionListener::<InitializeMachine>::new(Connection {
-                target: ready,
-                guards: None,
-            }),
+            StateMachineRoot,
         )).id();
 
     // Add the child entities to the root
