@@ -1,6 +1,7 @@
 use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use bevy_gearbox::prelude::*;
+use bevy_gearbox::transitions::Source;
 use bevy_gearbox::GearboxPlugin;
 use std::time::Duration;
 
@@ -10,8 +11,8 @@ fn main() {
         .add_plugins(GearboxPlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, (input_system, repeater_system))
-        .add_observer(transition_listener::<CastAbility>)
-        .add_observer(transition_listener::<OnComplete>)
+        .add_observer(transition_edge_listener::<CastAbility>)
+        .add_observer(transition_edge_listener::<OnComplete>)
         .add_observer(print_enter_state_messages)
         .add_observer(reset_repeater_on_cast)
         .add_observer(propagate_event::<CastAbility>)
@@ -69,17 +70,24 @@ fn setup(mut commands: Commands) {
     commands.entity(machine_entity).add_child(ready);
     commands.entity(machine_entity).add_child(repeating);
 
-    // --- Define Transitions ---
-    // When in Ready, CastAbility transitions to Repeating.
-    commands.entity(ready).insert(TransitionListener::<CastAbility>::new(Connection {
-        target: repeating,
-        guards: None,
-    }));
-    // When the repeater is done, it will fire OnComplete, which transitions to Finished.
-    commands.entity(repeating).insert(TransitionListener::<OnComplete>::new(Connection {
-        target: ready,
-        guards: None,
-    }));
+    // --- Define Transition Entities ---
+    // Ready --(CastAbility)--> Repeating
+    commands
+        .spawn((
+            Name::new("Ready -> Repeating (CastAbility)"),
+            EdgeTarget(repeating),
+            TransitionEdgeListener::<CastAbility>::default(),
+            Source(ready),
+        ));
+
+    // Repeating --(OnComplete)--> Ready
+    commands
+        .spawn((
+            Name::new("Repeating -> Ready (OnComplete)"),
+            EdgeTarget(ready),
+            TransitionEdgeListener::<OnComplete>::default(),
+            Source(repeating),
+        ));
 }
 
 /// Listens for keyboard input and sends events to trigger state transitions.

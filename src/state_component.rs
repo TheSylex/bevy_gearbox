@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{find_state_machine_root, EnterState, ExitState, StateMachineRoot};
+use crate::{EnterState, ExitState, StateChildOf};
 
 /// A component that when added to a state entity, will insert the contained component
 /// `T` into the state machine's root entity when this state is entered.
@@ -18,8 +18,7 @@ pub struct RemoveRootWhileActive<T: Component + Clone>(pub T);
 pub fn insert_root_while_enter<T: Component + Clone>(
     trigger: Trigger<EnterState>,
     query: Query<&InsertRootWhileActive<T>>,
-    child_of_query: Query<&ChildOf>,
-    state_machine_root_query: Query<&StateMachineRoot>,
+    child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
     let entered_state = trigger.target();
@@ -27,11 +26,7 @@ pub fn insert_root_while_enter<T: Component + Clone>(
         return;
     };
 
-    let root_entity = find_state_machine_root(entered_state, &child_of_query, &state_machine_root_query);
-
-    let Some(root_entity) = root_entity else {
-        return;
-    };
+    let root_entity = child_of_query.root_ancestor(entered_state);
 
     if root_entity != entered_state {
         commands.entity(root_entity).insert(insert_component.0.clone());
@@ -43,8 +38,7 @@ pub fn insert_root_while_enter<T: Component + Clone>(
 pub fn insert_root_while_exit<T: Component>(
     trigger: Trigger<ExitState>,
     query: Query<&InsertRootWhileActive<T>>,
-    child_of_query: Query<&ChildOf>,
-    state_machine_root_query: Query<&StateMachineRoot>,
+    child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
     let exited_state = trigger.target();
@@ -52,11 +46,7 @@ pub fn insert_root_while_exit<T: Component>(
         return;
     };
 
-    let root_entity = find_state_machine_root(exited_state, &child_of_query, &state_machine_root_query);
-
-    let Some(root_entity) = root_entity else {
-        return;
-    };
+    let root_entity = child_of_query.root_ancestor(exited_state);
 
     if root_entity != exited_state {
         commands.entity(root_entity).remove::<T>();
@@ -68,8 +58,7 @@ pub fn insert_root_while_exit<T: Component>(
 pub fn remove_root_while_enter<T: Component + Clone>(
     trigger: Trigger<EnterState>,
     query: Query<&RemoveRootWhileActive<T>>,
-    child_of_query: Query<&ChildOf>,
-    state_machine_root_query: Query<&StateMachineRoot>,
+    child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
     let entered_state = trigger.target();
@@ -77,11 +66,7 @@ pub fn remove_root_while_enter<T: Component + Clone>(
         return;
     };
 
-    let root_entity = find_state_machine_root(entered_state, &child_of_query, &state_machine_root_query);
-
-    let Some(root_entity) = root_entity else {
-        return;
-    };
+    let root_entity = child_of_query.root_ancestor(entered_state);
 
     if root_entity != entered_state {
         commands.entity(root_entity).remove::<T>();
@@ -93,8 +78,7 @@ pub fn remove_root_while_enter<T: Component + Clone>(
 pub fn remove_root_while_exit<T: Component + Clone>(
     trigger: Trigger<ExitState>,
     query: Query<&RemoveRootWhileActive<T>>,
-    child_of_query: Query<&ChildOf>,
-    state_machine_root_query: Query<&StateMachineRoot>,
+    child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
     let exited_state = trigger.target();
@@ -102,11 +86,7 @@ pub fn remove_root_while_exit<T: Component + Clone>(
         return;
     };
 
-    let root_entity = find_state_machine_root(exited_state, &child_of_query, &state_machine_root_query);
-
-    let Some(root_entity) = root_entity else {
-        return;
-    };
+    let root_entity = child_of_query.root_ancestor(exited_state);
 
     if root_entity != exited_state {
         commands.entity(root_entity).insert(remove_component.0.clone());

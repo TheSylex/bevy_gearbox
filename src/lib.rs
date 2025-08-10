@@ -1,6 +1,6 @@
 use bevy::{platform::collections::HashSet, prelude::*, reflect::Reflect};
 use bevy_ecs::component::Mutable;
-use bevy_ecs::{component::StorageType, reflect::ReflectMapEntities};
+use bevy_ecs::{component::StorageType};
 use bevy_ecs::entity::MapEntities;
 
 use crate::{active::{Active, Inactive}, guards::Guards, history::{History, HistoryState}};
@@ -10,7 +10,7 @@ pub mod guards;
 pub mod history;
 pub mod prelude;
 pub mod state_component;
-pub mod transition_listener;
+pub mod transitions;
 
 /// The main plugin for `bevy_gearbox`. Registers events and adds the core systems.
 pub struct GearboxPlugin;
@@ -20,72 +20,84 @@ impl Plugin for GearboxPlugin {
         app.add_observer(transition_observer)
             .add_observer(active::add_active)
             .add_observer(active::add_inactive)
-            .add_observer(initialize_state_machine)
-            .add_observer(always);
+            .add_observer(initialize_state_machine);
 
         app.register_type::<StateMachineRoot>();
-        app.register_type::<Connection>();
         app.register_type::<Parallel>();
         app.register_type::<InitialState>();
         app.register_type::<CurrentState>();
         app.register_type::<History>();
         app.register_type::<HistoryState>();
-        app.register_type::<ChildOf>();
+        app.register_type::<StateChildren>();
+        app.register_type::<StateChildOf>();
         app.register_type::<Guards>();
         app.register_type::<Active>();
         app.register_type::<Inactive>();
         app.register_type::<EnterState>();
         app.register_type::<ExitState>();
         app.register_type::<OnAdd>();
+        app.register_type::<transitions::Source>();
+        app.register_type::<transitions::Transitions>();
+        app.register_type::<transitions::EdgeTarget>();
+        app.register_type::<transitions::AlwaysEdge>();
+        app.register_type::<transitions::TransitionKind>();
 
-        app.add_systems(Update, check_always_system);
+        app.add_observer(transitions::transition_edge_always);
+        app.add_systems(Update, transitions::check_always_on_guards_changed);
     }
 }
 
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
+#[require(CurrentState)]
 pub struct StateMachineRoot;
 
-pub fn find_state_machine_root(
-    entity: Entity,
-    child_of_query: &Query<&ChildOf>,
-    state_machine_root_query: &Query<&StateMachineRoot>,
-) -> Option<Entity> {
-    for entity in child_of_query.iter_ancestors(entity) {
-        if state_machine_root_query.get(entity).is_ok() {
-            return Some(entity);
+// State-specific hierarchy relationships
+#[derive(Reflect, Component)]
+#[reflect(Component)]
+#[relationship_target(relationship = StateChildOf, linked_spawn)]
+pub struct StateChildren(Vec<Entity>);
+
+impl MapEntities for StateChildren {
+    fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {
+        for child in &mut self.0 {
+            *child = entity_mapper.get_mapped(*child);
         }
     }
-    None
 }
 
-#[derive(Reflect, Clone, Debug)]
-#[reflect(MapEntities)]
-pub struct Connection {
-    /// The target state entity to transition to.
-    pub target: Entity,
-    /// An optional entity holding `Guards` that must be satisfied for this transition to occur.
-    pub guards: Option<Entity>,
+impl<'a> IntoIterator for &'a StateChildren {
+    type Item = <Self::IntoIter as Iterator>::Item;
+
+    type IntoIter = std::slice::Iter<'a, Entity>;
+
+    #[inline(always)]
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
 }
 
-impl MapEntities for Connection {
+#[derive(Reflect, Component)]
+#[reflect(Component)]
+#[relationship(relationship_target = StateChildren)]
+pub struct StateChildOf(pub Entity);
+
+impl MapEntities for StateChildOf {
     fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {
-        self.target = entity_mapper.get_mapped(self.target);
-        if let Some(guards) = self.guards {
-            self.guards = Some(entity_mapper.get_mapped(guards));
-        }
+        self.0 = entity_mapper.get_mapped(self.0);
     }
 }
 
 /// An event that triggers a state transition in a machine.
-/// This is typically sent by a `TransitionListener` or `ComplexTransitionListener`.
+/// Prefer using `edge` to reference a transition entity. The legacy `connection`
+/// field is retained for initialization and backward compatibility.
 #[derive(Event)]
 pub struct Transition {
     /// The state that triggered this transition. This is used to determine the scope
     /// of the transition, especially in parallel state machines.
     pub source: Entity,
-    /// The details of the connection, including the target state and any guards.
-    pub connection: Connection,
+    /// The transition edge entity that defines the target and kind.
+    pub edge: Entity,
 }
 
 /// A marker component for a state that has parallel (orthogonal) regions.
@@ -133,28 +145,24 @@ pub struct ExitState;
 pub fn transition_observer(
     trigger: Trigger<Transition>,
     mut machine_query: Query<&mut CurrentState>,
-    guards_query: Query<&Guards>,
     parallel_query: Query<&Parallel>,
-    children_query: Query<&Children>,
+    children_query: Query<&StateChildren>,
     initial_state_query: Query<&InitialState>,
     history_query: Query<&History>,
     mut history_state_query: Query<&mut HistoryState>,
-    child_of_query: Query<&ChildOf>,
+    child_of_query: Query<&StateChildOf>,
+    edge_target_query: Query<&transitions::EdgeTarget>,
+    kind_query: Query<&transitions::TransitionKind>,
     mut commands: Commands,
 ) {
     let machine_entity = trigger.target();
     let source_state = trigger.event().source;
-    let new_super_state = trigger.event().connection.target;
-    let guards_entity = trigger.event().connection.guards;
-
-    // If the transition is protected by a guard check the guard
-    if let Some(guard_entity) = guards_entity {
-        if let Ok(guards) = guards_query.get(guard_entity) {
-            if !guards.check() {
-                return;
-            }
-        }
-    }
+    // Resolve target: prefer EdgeTarget on the edge; otherwise treat the edge itself
+    // as the super state to start from (useful for root init where initial is on the state).
+    let new_super_state = match edge_target_query.get(trigger.event().edge) {
+        Ok(edge_target) => edge_target.0,
+        Err(_) => trigger.event().edge,
+    };
 
     let Ok(mut current_state) = machine_query.get_mut(machine_entity) else {
         return;
@@ -162,10 +170,22 @@ pub fn transition_observer(
 
     // Handle initialization case where there are no current active states
     if current_state.0.is_empty() {
-        
-        // Directly enter the target state and drill down to leaf states
-        commands.trigger_targets(EnterState, new_super_state);
-        
+        // Enter the machine root first, then all ancestors from root→target
+        commands.trigger_targets(EnterState, machine_entity);
+
+        // Build path from target up to (but excluding) the machine root
+        let mut path_to_target: Vec<Entity> = vec![new_super_state];
+        path_to_target.extend(
+            child_of_query
+                .iter_ancestors(new_super_state)
+                .take_while(|&ancestor| ancestor != machine_entity),
+        );
+
+        // Enter ancestors parent→child down to the target
+        for entity in path_to_target.iter().rev() {
+            commands.trigger_targets(EnterState, *entity);
+        }
+
         let new_leaf_states = get_all_leaf_states(
             new_super_state,
             &initial_state_query,
@@ -199,12 +219,32 @@ pub fn transition_observer(
     let enter_path = get_path_to_root(new_super_state, &child_of_query);
 
     // Find how many ancestors are shared from the root.
-    let lca_depth = exit_path
+    let mut lca_depth = exit_path
         .iter()
         .rev()
         .zip(enter_path.iter().rev())
         .take_while(|(a, b)| a == b)
         .count();
+
+    // Compute the LCA entity if any common path exists
+    let lca_entity = if lca_depth > 0 {
+        Some(exit_path[exit_path.len() - lca_depth])
+    } else {
+        None
+    };
+
+    let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::TransitionKind::Internal));
+
+    if !is_internal {
+        // Default external self-transition: force re-entry of the leaf when target equals source leaf
+        if new_super_state == exiting_leaf_state {
+            lca_depth = lca_depth.saturating_sub(1);
+        }
+        // Default external when source is the LCA of source→target: force re-entry of the source
+        else if lca_entity == Some(source_state) {
+            lca_depth = lca_depth.saturating_sub(1);
+        }
+    }
 
     // The states to exit are those not in the common path.
     let states_to_exit = &exit_path[..exit_path.len() - lca_depth];
@@ -221,7 +261,7 @@ pub fn transition_observer(
                     // For shallow history, only save direct children that are currently active
                     current_state.0.iter()
                         .filter(|&&state| {
-                            if let Ok(parent) = child_of_query.get(state).map(|child_of| child_of.parent()) {
+                            if let Ok(parent) = child_of_query.get(state).map(|child_of| child_of.0) {
                                 parent == *entity
                             } else {
                                 false
@@ -236,7 +276,7 @@ pub fn transition_observer(
                         .filter(|&&state| {
                             state == *entity || child_of_query
                                 .iter_ancestors(state)
-                                .any(|ancestor| ancestor == *entity)
+                                 .any(|ancestor| ancestor == *entity)
                         })
                         .copied()
                         .collect()
@@ -276,7 +316,7 @@ pub fn transition_observer(
     current_state.0.extend(new_leaf_states);
 }
 
-fn get_path_to_root(start_entity: Entity, child_of_query: &Query<&ChildOf>) -> Vec<Entity> {
+fn get_path_to_root(start_entity: Entity, child_of_query: &Query<&StateChildOf>) -> Vec<Entity> {
     let mut path = vec![start_entity];
     path.extend(child_of_query.iter_ancestors(start_entity));
     path
@@ -285,11 +325,11 @@ fn get_path_to_root(start_entity: Entity, child_of_query: &Query<&ChildOf>) -> V
 pub fn get_all_leaf_states(
     start_node: Entity,
     initial_state_query: &Query<&InitialState>,
-    children_query: &Query<&Children>,
+    children_query: &Query<&StateChildren>,
     parallel_query: &Query<&Parallel>,
     history_query: &Query<&History>,
     history_state_query: &Query<&mut HistoryState>,
-    child_of_query: &Query<&ChildOf>,
+    child_of_query: &Query<&StateChildOf>,
     commands: &mut Commands,
 ) -> HashSet<Entity> {
     let mut leaves = HashSet::new();
@@ -302,10 +342,10 @@ pub fn get_all_leaf_states(
         if parallel_query.get(entity).is_ok() {
             if let Ok(children) = children_query.get(entity) {
                 found_next = true;
-                for child in children {
+                for &child in children {
                     // Enter the state for the region itself
-                    commands.trigger_targets(EnterState, *child);
-                    stack.push(*child);
+                    commands.trigger_targets(EnterState, child);
+                    stack.push(child);
                 }
             }
         }
@@ -385,77 +425,10 @@ fn initialize_state_machine(
     mut commands: Commands,
 ) {
     let target = trigger.target();
-    let Ok(initial_state) = initial_state_query.get(target) else {
+    let Ok(_initial_state) = initial_state_query.get(target) else {
         return;
     };
 
-    commands.trigger_targets(
-        Transition {
-            source: target,
-            connection: Connection {
-                target: initial_state.0,
-                guards: None,
-            },
-        },
-        target,
-    );
-}
-
-#[derive(Component, Reflect)]
-#[reflect(Component)]
-pub struct Always {
-    pub target: Entity,
-    pub guards: Option<Entity>,
-}
-
-fn always(
-    trigger: Trigger<EnterState>,
-    query: Query<&Always>,
-    child_of_query: Query<&ChildOf>,
-    state_machine_root_query: Query<&StateMachineRoot>,
-    mut commands: Commands,
-) {
-    let target = trigger.target();
-    let Ok(always) = query.get(target) else {
-        return;
-    };
-    
-    let root_entity = find_state_machine_root(target, &child_of_query, &state_machine_root_query);
-
-    let Some(root_entity) = root_entity else {
-        return;
-    };
-
-    commands.trigger_targets(Transition {
-        source: target,
-        connection: Connection {
-            target: always.target,
-            guards: always.guards,
-        },
-    }, root_entity);
-}
-
-fn check_always_system(
-    query: Query<(Entity, &Always, &Guards), With<Active>>,
-    child_of_query: Query<&ChildOf>,
-    state_machine_root_query: Query<&StateMachineRoot>,
-    mut commands: Commands,
-) {
-    for (entity, always, guards) in query.iter() {
-        if guards.check() {
-            let root_entity = find_state_machine_root(entity, &child_of_query, &state_machine_root_query);
-        
-            let Some(root_entity) = root_entity else {
-                return;
-            };
-
-            commands.trigger_targets(Transition {
-                source: entity,
-                connection: Connection {
-                    target: always.target,
-                    guards: always.guards,
-                },
-            }, root_entity);
-        }
-    }
+    // Treat the root as its own edge: transition to the root, then drill down via InitialState/Always.
+    commands.trigger_targets(Transition { source: target, edge: target }, target);
 }
