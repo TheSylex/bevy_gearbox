@@ -4,7 +4,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy_ecs::{component::{Mutable, StorageType}, entity::MapEntities};
 
-use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf};
+use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, CurrentState};
 
 /// Outbound transitions from a source state. Order defines priority (first match wins).
 #[derive(Reflect, Component)]
@@ -99,7 +99,7 @@ impl<E: Event> MapEntities for TransitionListener<E> {
 }
 
 /// On EnterState(source), evaluate AlwaysEdge transitions listed in `Transitions(source)` in order.
-pub fn transition_edge_always(
+pub fn transition_always(
     trigger: Trigger<EnterState>,
     transitions_query: Query<&Transitions>,
     always_query: Query<(), With<AlwaysEdge>>,
@@ -134,32 +134,66 @@ pub fn transition_edge_always(
 
 /// Generic listener: on event `E` at a source state, scan its `Transitions` for a matching
 /// transition entity with `TransitionListener<E>`, in priority order.
-pub fn transition_edge_listener<E: Event>(
+pub fn transition_listener<E: Event>(
     trigger: Trigger<E>,
     transitions_query: Query<&Transitions>,
     listener_query: Query<&TransitionListener<E>>, 
     edge_target_query: Query<&Target>,
     guards_query: Query<&Guards>,
     child_of_query: Query<&StateChildOf>,
+    current_state_query: Query<&CurrentState>,
     mut commands: Commands,
 ){
+    // If the event target is a machine root, propagate to active leaves and evaluate in one pass
+    if let Ok(current) = current_state_query.get(trigger.target()) {
+        for &leaf in current.0.iter() {
+            try_fire_first_matching_edge(
+                leaf,
+                &transitions_query,
+                &listener_query,
+                &edge_target_query,
+                &guards_query,
+                &child_of_query,
+                &mut commands,
+            );
+        }
+        return;
+    }
+
+    // Otherwise, evaluate on the targeted state directly
     let source = trigger.target();
+    try_fire_first_matching_edge(
+        source,
+        &transitions_query,
+        &listener_query,
+        &edge_target_query,
+        &guards_query,
+        &child_of_query,
+        &mut commands,
+    );
+}
+
+fn try_fire_first_matching_edge<E: Event>(
+    source: Entity,
+    transitions_query: &Query<&Transitions>,
+    listener_query: &Query<&TransitionListener<E>>, 
+    edge_target_query: &Query<&Target>,
+    guards_query: &Query<&Guards>,
+    child_of_query: &Query<&StateChildOf>,
+    commands: &mut Commands,
+) {
     let Ok(transitions) = transitions_query.get(source) else { return; };
 
     for edge in transitions.get_transitions().iter().copied() {
         if listener_query.get(edge).is_err() { continue; }
 
-        // Evaluate guards on the edge itself if present
         if let Ok(guards) = guards_query.get(edge) {
             if !guards.check() { continue; }
         }
 
-        // Resolve target
         if edge_target_query.get(edge).is_err() { continue; }
 
-        // Fire transition
         let root = child_of_query.root_ancestor(source);
-
         commands.trigger_targets(Transition { source, edge }, root);
         break;
     }

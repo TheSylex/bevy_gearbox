@@ -23,7 +23,6 @@ pub use crate::{
     get_all_leaf_states,
     state_component::insert_root_while_enter,
     state_component::insert_root_while_exit,
-    propagate_event,
     state_component::remove_root_while_enter,
     state_component::remove_root_while_exit,
     transitions::Transitions,
@@ -31,5 +30,5 @@ pub use crate::{
     transitions::AlwaysEdge,
     transitions::TransitionKind,
     transitions::TransitionListener,
-    transitions::transition_edge_listener,
+    transitions::transition_listener,
 };

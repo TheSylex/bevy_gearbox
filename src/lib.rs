@@ -43,7 +43,7 @@ impl Plugin for GearboxPlugin {
         app.register_type::<transitions::AlwaysEdge>();
         app.register_type::<transitions::TransitionKind>();
 
-        app.add_observer(transitions::transition_edge_always);
+        app.add_observer(transitions::transition_always);
         app.add_observer(transitions::start_after_on_enter);
         app.add_observer(transitions::cancel_after_on_exit);
         app.add_systems(Update, transitions::check_always_on_guards_changed);
@@ -422,21 +422,6 @@ pub fn get_all_leaf_states(
         }
     }
     leaves
-}
-
-pub fn propagate_event<T: Event + Clone>(
-    trigger: Trigger<T>,
-    query: Query<&CurrentState>,
-    mut commands: Commands,
-) {
-    let target = trigger.target();
-    let Ok(current_state) = query.get(target) else {
-        return;
-    };
-
-    for state in current_state.0.iter() {
-        commands.trigger_targets(trigger.event().clone(), *state);
-    }
 }
 
 /// Triggers the InitializeMachine event when AbilityMachine component is added.
