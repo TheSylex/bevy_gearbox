@@ -1,28 +1,64 @@
-# Bevy Gearbox
+# bevy_gearbox
 
-A hierarchical statechart library for Bevy that implements UML-style statecharts using Bevy's ECS and observer systems.
+Statecharts for Bevy, designed for ECS-first workflows and data-driven tools. Pairs well with the visual editor [`bevy_gearbox_editor`](https://github.com/DEMIURGE-studio/bevy_gearbox_editor).
 
-## Supported Features
+## Overview
 
-- **Hierarchical States** - Nested state machines with parent-child relationships
-- **Parallel States** - Multiple concurrent state regions  
-- **History States** - Both shallow and deep history restoration
-- **Guards** - Conditional transitions with runtime evaluation
-- **Event-Driven Transitions** - Type-safe event handling via Bevy observers
-- **Active State Tracking** - Automatic `Active`/`Inactive` component management
-- **Component State Effects** - States can insert/remove components on the root entity
-- **Event Propagation** - Broadcast events to all active states
-- **Complex Transition Logic** - Dynamic target determination based on event data
-- **Native Bevy Integration** - Built on Bevy's ECS, observers, and entity hierarchy
+bevy_gearbox provides a state machine runtime modeled after XState’s core ideas (LCA-based transitions, entry/exit/transition phases, eventless transitions), adapted to Bevy’s ECS. It’s not a perfect logical match to XState; it prioritizes Bevy ergonomics, serialization, and editor integration.
 
-## Missing Features (Compared to XState)
+## Why use bevy_gearbox
 
-- **Final States** - Terminal states that stop the machine (Is this just a state without transitions?)
-- **Delayed Transitions** - Time-based automatic transitions (`after: 1000`)
-- **Eventless Transitions** - Condition-only transitions that fire immediately (`always`)
-- **Context/Extended State** - Built-in data management within the state machine
-- **Invoked Actors/Services** - Spawning child processes, promises, or observables
-- **Transient States** - Pass-through conditional routing states
-- **Wildcard Transitions** - Catch-all handlers for unhandled events (`*`)
-- **State Persistence** - Built-in save/restore functionality
-- **Meta Data & Tags** - State categorization and metadata system
+- ECS-first design: states, transitions, and hierarchy are plain components and entities.
+- Deterministic state changes: exit → transition actions → entry; LCA-based pathing.
+- Data-driven: author machines in scenes; integrate with tools out of the box.
+- Editor ecosystem: pairs with [`bevy_gearbox_editor`](https://github.com/DEMIURGE-studio/bevy_gearbox_editor) for rapid iteration and live statechart inspection.
+
+## Core concepts
+
+- Logical hierarchy (independent of scene graph): `StateChildOf` / `StateChildren`.
+- Activation semantics:
+  - Root remains active for the machine lifetime.
+  - Entering a state enters all ancestors down to the leaf.
+  - Self-transitions are external by default; use `TransitionKind::Internal` to suppress re-entry.
+- Transition entities:
+  - `Source(Entity)`, `Target(Entity)`, `TransitionKind`.
+  - Event-driven transitions via `TransitionListener<E>` components on edges.
+  - Eventless transitions: `AlwaysEdge`.
+  - Delayed transitions: `After { duration }` with cancellation on exit.
+- Guards:
+  - ECS-managed guard failure sets with per-edge checks.
+  - Composition support planned via a small `Logic` tree.
+- Actions envelope:
+  - `TransitionActions { source, edge, target }` emitted between exits and entries.
+  - Author “assign/raise/send/cancel” patterns as normal systems.
+
+## Quick start
+
+1) Add the plugin and your event observers
+
+```rust
+app.add_plugins(GearboxPlugin)
+   .add_observer(transition_listener::<YourEvent>);
+```
+
+2) Send events to the machine root; the listener routes to active leaves internally
+
+```rust
+commands.trigger_targets(YourEvent, machine_root);
+```
+
+3) Author via code or scenes
+
+- Spawn states and edges with `Source`, `Target`, `TransitionKind`, `TransitionListener<E>`, `AlwaysEdge`, `After`.
+- Or load a scene authored with [`bevy_gearbox_editor`](https://github.com/DEMIURGE-studio/bevy_gearbox_editor).
+
+## Compatibility
+
+| Crate               | Version | Bevy |
+|---------------------|---------|------|
+| bevy_gearbox        | 0.3     | 0.16 |
+| bevy_gearbox_editor | 0.3     | 0.16 |
+
+## License
+
+Dual-licensed under MIT or Apache-2.0, at your option.
