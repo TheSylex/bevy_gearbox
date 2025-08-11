@@ -573,20 +573,6 @@ version = "0.3.0"
 dependencies = [
  "bevy",
  "bevy_ecs",
- "bevy_gearbox_macros",
-]
-
-[[package]]
-name = "bevy_gearbox_macros"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78b3994e4f47b35d1ec414da1778485760d455b63bfafcff3dc26536accf1920"
-dependencies = [
- "derive-alias",
- "heck",
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -1792,12 +1778,6 @@ name = "data-encoding"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a2330da5de22e8a3cb63252ce2abb30116bf5265e89c0e01bc17015ce30a476"
-
-[[package]]
-name = "derive-alias"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccf43ca6c88706e96d63adb8f8e44d0c2eaa7c90b3dbaf85f61483770b9a80f9"
 
 [[package]]
 name = "derive_more"
