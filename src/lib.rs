@@ -35,6 +35,7 @@ impl Plugin for GearboxPlugin {
         app.register_type::<Inactive>();
         app.register_type::<EnterState>();
         app.register_type::<ExitState>();
+        app.register_type::<TransitionActions>();
         app.register_type::<OnAdd>();
         app.register_type::<transitions::Source>();
         app.register_type::<transitions::Transitions>();
@@ -98,6 +99,13 @@ pub struct Transition {
     pub source: Entity,
     /// The transition edge entity that defines the target and kind.
     pub edge: Entity,
+}
+
+#[derive(Event, Reflect)]
+pub struct TransitionActions {
+    pub source: Entity,
+    pub edge: Entity,
+    pub target: Entity,
 }
 
 /// A marker component for a state that has parallel (orthogonal) regions.
@@ -296,6 +304,16 @@ pub fn transition_observer(
 
     // Update the current state set
     current_state.0.remove(&exiting_leaf_state);
+
+    // Transition actions phase (between exits and entries)
+    commands.trigger_targets(
+        TransitionActions {
+            source: source_state,
+            edge: trigger.event().edge,
+            target: new_super_state,
+        }, 
+        machine_entity,
+    );
 
     // Enter from parent to child
     for entity in states_to_enter.iter().rev() {
