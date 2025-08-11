@@ -39,12 +39,15 @@ impl Plugin for GearboxPlugin {
         app.register_type::<OnAdd>();
         app.register_type::<transitions::Source>();
         app.register_type::<transitions::Transitions>();
-        app.register_type::<transitions::EdgeTarget>();
+        app.register_type::<transitions::Target>();
         app.register_type::<transitions::AlwaysEdge>();
         app.register_type::<transitions::TransitionKind>();
 
         app.add_observer(transitions::transition_edge_always);
+        app.add_observer(transitions::start_after_on_enter);
+        app.add_observer(transitions::cancel_after_on_exit);
         app.add_systems(Update, transitions::check_always_on_guards_changed);
+        app.add_systems(Update, transitions::tick_after_system);
     }
 }
 
@@ -159,13 +162,13 @@ pub fn transition_observer(
     history_query: Query<&History>,
     mut history_state_query: Query<&mut HistoryState>,
     child_of_query: Query<&StateChildOf>,
-    edge_target_query: Query<&transitions::EdgeTarget>,
+    edge_target_query: Query<&transitions::Target>,
     kind_query: Query<&transitions::TransitionKind>,
     mut commands: Commands,
 ) {
     let machine_entity = trigger.target();
     let source_state = trigger.event().source;
-    // Resolve target: prefer EdgeTarget on the edge; otherwise treat the edge itself
+    // Resolve target: prefer Target on the edge; otherwise treat the edge itself
     // as the super state to start from (useful for root init where initial is on the state).
     let new_super_state = match edge_target_query.get(trigger.event().edge) {
         Ok(edge_target) => edge_target.0,

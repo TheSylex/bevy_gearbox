@@ -27,9 +27,9 @@ pub use crate::{
     state_component::remove_root_while_enter,
     state_component::remove_root_while_exit,
     transitions::Transitions,
-    transitions::EdgeTarget,
+    transitions::Target,
     transitions::AlwaysEdge,
     transitions::TransitionKind,
-    transitions::TransitionEdgeListener,
+    transitions::TransitionListener,
     transitions::transition_edge_listener,
 };

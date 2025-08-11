@@ -75,8 +75,8 @@ fn setup(mut commands: Commands) {
     commands
         .spawn((
             Name::new("Ready -> Repeating (CastAbility)"),
-            EdgeTarget(repeating),
-            TransitionEdgeListener::<CastAbility>::default(),
+            Target(repeating),
+            TransitionListener::<CastAbility>::default(),
             Source(ready),
         ));
 
@@ -84,8 +84,8 @@ fn setup(mut commands: Commands) {
     commands
         .spawn((
             Name::new("Repeating -> Ready (OnComplete)"),
-            EdgeTarget(ready),
-            TransitionEdgeListener::<OnComplete>::default(),
+            Target(ready),
+            TransitionListener::<OnComplete>::default(),
             Source(repeating),
         ));
 }

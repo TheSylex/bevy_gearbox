@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy_ecs::{component::{Mutable, StorageType}, entity::MapEntities};
@@ -42,9 +43,9 @@ impl MapEntities for Source {
 /// Target for an edge transition.
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct EdgeTarget(pub Entity);
+pub struct Target(pub Entity);
 
-impl MapEntities for EdgeTarget {
+impl MapEntities for Target {
     fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {
         self.0 = entity_mapper.get_mapped(self.0);
     }
@@ -64,27 +65,36 @@ pub enum TransitionKind {
 #[reflect(Component)]
 pub struct AlwaysEdge;
 
+/// Delayed transition configuration: fire after `duration` has elapsed while the source is active.
+#[derive(Component)]
+pub struct After {
+    pub duration: Duration,
+}
+
+#[derive(Component)]
+pub struct EdgeTimer(pub Timer);
+
 /// Attach this to a transition entity to react to a specific event `E`.
 #[derive(Reflect)]
 #[reflect(Component)]
-pub struct TransitionEdgeListener<E: Event> {
+pub struct TransitionListener<E: Event> {
     #[reflect(ignore)]
     _marker: PhantomData<E>,
 }
 
-impl<E: Event> Default for TransitionEdgeListener<E> {
+impl<E: Event> Default for TransitionListener<E> {
     fn default() -> Self {
         Self { _marker: PhantomData }
     }
 }
 
-impl<T: Event> Component for TransitionEdgeListener<T> {
+impl<T: Event> Component for TransitionListener<T> {
     const STORAGE_TYPE: StorageType = StorageType::Table;
 
     type Mutability = Mutable;
 }
 
-impl<E: Event> MapEntities for TransitionEdgeListener<E> {
+impl<E: Event> MapEntities for TransitionListener<E> {
     fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
 }
 
@@ -93,7 +103,7 @@ pub fn transition_edge_always(
     trigger: Trigger<EnterState>,
     transitions_query: Query<&Transitions>,
     always_query: Query<(), With<AlwaysEdge>>,
-    edge_target_query: Query<&EdgeTarget>,
+    edge_target_query: Query<&Target>,
     guards_query: Query<&Guards>,
     child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
@@ -123,12 +133,12 @@ pub fn transition_edge_always(
 }
 
 /// Generic listener: on event `E` at a source state, scan its `Transitions` for a matching
-/// transition entity with `TransitionEdgeListener<E>`, in priority order.
+/// transition entity with `TransitionListener<E>`, in priority order.
 pub fn transition_edge_listener<E: Event>(
     trigger: Trigger<E>,
     transitions_query: Query<&Transitions>,
-    listener_query: Query<&TransitionEdgeListener<E>>, 
-    edge_target_query: Query<&EdgeTarget>,
+    listener_query: Query<&TransitionListener<E>>, 
+    edge_target_query: Query<&Target>,
     guards_query: Query<&Guards>,
     child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
@@ -158,7 +168,7 @@ pub fn transition_edge_listener<E: Event>(
 
 /// When guards on an Always edge change while its source state is active, re-check and fire if now allowed.
 pub fn check_always_on_guards_changed(
-    guards_changed_query: Query<(Entity, &Guards, &Source, Has<EdgeTarget>, Has<Active>), (Changed<Guards>, With<AlwaysEdge>)>, 
+    guards_changed_query: Query<(Entity, &Guards, &Source, Has<Target>, Has<Active>), (Changed<Guards>, With<AlwaysEdge>)>, 
     transitions_query: Query<&Transitions>,
     child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
@@ -181,6 +191,75 @@ pub fn check_always_on_guards_changed(
         let root = child_of_query.root_ancestor(source);
 
         commands.trigger_targets(Transition { source, edge }, root);
+    }
+}
+
+/// On EnterState(source), start timers for any After edges.
+pub fn start_after_on_enter(
+    trigger: Trigger<EnterState>,
+    transitions_query: Query<&Transitions>,
+    after_query: Query<&After>,
+    mut commands: Commands,
+) {
+    let source = trigger.target();
+    let Ok(transitions) = transitions_query.get(source) else { return; };
+    for edge in transitions.get_transitions().iter().copied() {
+        if let Ok(after) = after_query.get(edge) {
+            commands.entity(edge).insert(EdgeTimer(Timer::new(after.duration, TimerMode::Once)));
+        }
+    }
+}
+
+/// On ExitState(source), cancel timers for any After edges.
+pub fn cancel_after_on_exit(
+    trigger: Trigger<crate::ExitState>,
+    transitions_query: Query<&Transitions>,
+    after_query: Query<&After>,
+    mut commands: Commands,
+) {
+    let source = trigger.target();
+    let Ok(transitions) = transitions_query.get(source) else { return; };
+    for edge in transitions.get_transitions().iter().copied() {
+        if after_query.get(edge).is_ok() {
+            commands.entity(edge).remove::<EdgeTimer>();
+        }
+    }
+}
+
+/// Tick After timers and fire the first due transition per active source, respecting Transitions order.
+pub fn tick_after_system(
+    time: Res<Time>,
+    sources_with_transitions: Query<(Entity, &Transitions), With<Active>>, // active source states only
+    mut timer_query: Query<&mut EdgeTimer>,
+    after_query: Query<&After>,
+    guards_query: Query<&Guards>,
+    edge_target_query: Query<&Target>,
+    child_of_query: Query<&StateChildOf>,
+    mut commands: Commands,
+) {
+    for (source, transitions) in sources_with_transitions.iter() {
+        // Walk edges in priority order; fire first eligible
+        for edge in transitions.get_transitions().iter().copied() {
+            if after_query.get(edge).is_err() { continue; }
+            let Ok(mut timer) = timer_query.get_mut(edge) else { continue; };
+            timer.0.tick(time.delta());
+            if !timer.0.just_finished() { continue; }
+
+            // Guards on edge (optional)
+            if let Ok(guards) = guards_query.get(edge) {
+                if !guards.check() { continue; }
+            }
+            // Need a valid target
+            if edge_target_query.get(edge).is_err() { continue; }
+
+            // Cancel timer to avoid multiple firings if state persists
+            commands.entity(edge).remove::<EdgeTimer>();
+
+            // Emit transition to the machine root
+            let root = child_of_query.root_ancestor(source);
+            commands.trigger_targets(Transition { source, edge }, root);
+            break; // only one delayed transition per source per frame
+        }
     }
 }
 
