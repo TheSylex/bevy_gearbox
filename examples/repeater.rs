@@ -15,8 +15,6 @@ fn main() {
         .add_observer(transition_listener::<OnComplete>)
         .add_observer(print_enter_state_messages)
         .add_observer(reset_repeater_on_cast)
-        .add_observer(propagate_event::<CastAbility>)
-        .add_observer(propagate_event::<OnComplete>)
         .run();
 }
 
