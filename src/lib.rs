@@ -211,60 +211,90 @@ pub fn transition_observer(
         return;
     }
 
-    // Find which of the current leaf states is the one we're transitioning from.
-    // It must be a descendant of the state that triggered the transition.
-    let Some(exiting_leaf_state) = current_state.0.iter().find(|leaf| {
-        **leaf == source_state
-            || child_of_query
-                .iter_ancestors(**leaf)
-                .any(|ancestor| ancestor == source_state)
-    }).copied() else {
-        // This transition is not coming from any of the currently active states.
-        return;
-    };
+    // Determine whether the source is a parallel parent (transition defined on a parallel state)
+    let source_is_parallel = parallel_query.get(source_state).is_ok();
 
-    // Collect exit path from current leaf state up to the root
-    let exit_path = get_path_to_root(exiting_leaf_state, &child_of_query);
+    // Exit/enter computation diverges for parallel parents
+    let (states_to_exit_vec, states_to_enter_vec) = if source_is_parallel {
+        // 1) Exit: all active leaves under the parallel source up to (and including) the source
+        let mut ordered_exits: Vec<Entity> = Vec::new();
+        let mut seen: HashSet<Entity> = HashSet::new();
+        for &leaf in current_state.0.iter() {
+            // Consider only leaves that are descendants of the parallel source
+            let is_descendant = leaf == source_state
+                || child_of_query.iter_ancestors(leaf).any(|a| a == source_state);
+            if !is_descendant { continue; }
 
-    // Collect enter path from new super state up to the root
-    let enter_path = get_path_to_root(new_super_state, &child_of_query);
+            // Exit path from leaf up to source_state (inclusive)
+            let path = get_path_to_root(leaf, &child_of_query);
+            if let Some(pos) = path.iter().position(|&e| e == source_state) {
+                let slice = &path[..=pos]; // includes source_state
+                for &e in slice {
+                    if seen.insert(e) { ordered_exits.push(e); }
+                }
+            }
+        }
 
-    // Find how many ancestors are shared from the root.
-    let mut lca_depth = exit_path
-        .iter()
-        .rev()
-        .zip(enter_path.iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count();
+        // 2) Enter: compute LCA between source_state and new_super_state
+        let exit_path_from_source = get_path_to_root(source_state, &child_of_query);
+        let enter_path = get_path_to_root(new_super_state, &child_of_query);
 
-    // Compute the LCA entity if any common path exists
-    let lca_entity = if lca_depth > 0 {
-        Some(exit_path[exit_path.len() - lca_depth])
+        let mut lca_depth = exit_path_from_source
+            .iter()
+            .rev()
+            .zip(enter_path.iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+
+        let lca_entity = if lca_depth > 0 { Some(exit_path_from_source[exit_path_from_source.len() - lca_depth]) } else { None };
+
+        let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::TransitionKind::Internal));
+        if !is_internal {
+            // If source is the LCA, default external re-enters the source
+            if lca_entity == Some(source_state) {
+                lca_depth = lca_depth.saturating_sub(1);
+            }
+        }
+
+        let states_to_enter = enter_path[..enter_path.len() - lca_depth].to_vec();
+        (ordered_exits, states_to_enter)
     } else {
-        None
+        // Non-parallel: original single-leaf logic
+        // Find the leaf that’s under the source
+        let Some(exiting_leaf_state) = current_state.0.iter().find(|leaf| {
+            **leaf == source_state
+                || child_of_query
+                    .iter_ancestors(**leaf)
+                    .any(|ancestor| ancestor == source_state)
+        }).copied() else {
+            // This transition is not coming from any of the currently active states.
+            return;
+        };
+
+        let exit_path = get_path_to_root(exiting_leaf_state, &child_of_query);
+        let enter_path = get_path_to_root(new_super_state, &child_of_query);
+        let mut lca_depth = exit_path
+            .iter()
+            .rev()
+            .zip(enter_path.iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let lca_entity = if lca_depth > 0 { Some(exit_path[exit_path.len() - lca_depth]) } else { None };
+        let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::TransitionKind::Internal));
+        if !is_internal {
+            if new_super_state == exiting_leaf_state {
+                lca_depth = lca_depth.saturating_sub(1);
+            } else if lca_entity == Some(source_state) {
+                lca_depth = lca_depth.saturating_sub(1);
+            }
+        }
+        let states_to_exit = exit_path[..exit_path.len() - lca_depth].to_vec();
+        let states_to_enter = enter_path[..enter_path.len() - lca_depth].to_vec();
+        (states_to_exit, states_to_enter)
     };
-
-    let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::TransitionKind::Internal));
-
-    if !is_internal {
-        // Default external self-transition: force re-entry of the leaf when target equals source leaf
-        if new_super_state == exiting_leaf_state {
-            lca_depth = lca_depth.saturating_sub(1);
-        }
-        // Default external when source is the LCA of source→target: force re-entry of the source
-        else if lca_entity == Some(source_state) {
-            lca_depth = lca_depth.saturating_sub(1);
-        }
-    }
-
-    // The states to exit are those not in the common path.
-    let states_to_exit = &exit_path[..exit_path.len() - lca_depth];
-
-    // The states to enter are those not in the common path.
-    let states_to_enter = &enter_path[..enter_path.len() - lca_depth];
 
     // Exit from child to parent, saving history if needed
-    for entity in states_to_exit {
+    for entity in states_to_exit_vec.iter() {
         // Save history if this state has history behavior
         if let Ok(history) = history_query.get(*entity) {
             let states_to_save = match history {
@@ -306,7 +336,11 @@ pub fn transition_observer(
     }
 
     // Update the current state set
-    current_state.0.remove(&exiting_leaf_state);
+    // For parallel parents we potentially exited multiple leaves; remove any leaves we exited.
+    for exited in states_to_exit_vec.iter() {
+        // Only remove if it was a leaf previously
+        current_state.0.remove(exited);
+    }
 
     // Transition actions phase (between exits and entries)
     commands.trigger_targets(
@@ -319,7 +353,7 @@ pub fn transition_observer(
     );
 
     // Enter from parent to child
-    for entity in states_to_enter.iter().rev() {
+    for entity in states_to_enter_vec.iter().rev() {
         commands.trigger_targets(EnterState, *entity);
     }
 
@@ -378,16 +412,29 @@ pub fn get_all_leaf_states(
                 History::Shallow => {
                     // For shallow history, restore direct children and let them drill down normally
                     for &saved_state in &history_state.0 {
+                        // Enter the saved direct child so its entry actions run
                         commands.trigger_targets(EnterState, saved_state);
+                        // Then continue drilling via InitialState/History under it
                         stack.push(saved_state);
                     }
                 }
                 History::Deep => {
                     // For deep history, restore the exact hierarchy that was saved
                     for &saved_state in &history_state.0 {
-                        if saved_state != entity {
-                            commands.trigger_targets(EnterState, saved_state);
+                        // Compute the path from the current restoring state (entity)
+                        // down to the saved leaf and enter along that path in parent→child order.
+                        let mut path_to_substate = vec![saved_state];
+                        path_to_substate.extend(
+                            child_of_query
+                                .iter_ancestors(saved_state)
+                                .take_while(|&ancestor| ancestor != entity),
+                        );
+
+                        for e in path_to_substate.iter().rev() {
+                            commands.trigger_targets(EnterState, *e);
                         }
+
+                        // Mark the saved leaf as restored
                         leaves.insert(saved_state);
                     }
                     // Skip normal processing for deep history

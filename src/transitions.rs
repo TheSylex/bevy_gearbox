@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use bevy::prelude::*;
-use bevy_ecs::{component::{Mutable, StorageType}, entity::MapEntities};
+use std::collections::HashSet;
+use bevy_ecs::entity::MapEntities;
 
 use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, CurrentState};
 
@@ -32,24 +33,12 @@ impl Transitions {
 #[derive(Component, Reflect)]
 #[reflect(Component)]
 #[relationship(relationship_target = Transitions)]
-pub struct Source(pub Entity);
-
-impl MapEntities for Source {
-    fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {
-        self.0 = entity_mapper.get_mapped(self.0);
-    }
-}
+pub struct Source(#[entities] pub Entity);
 
 /// Target for an edge transition.
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct Target(pub Entity);
-
-impl MapEntities for Target {
-    fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {
-        self.0 = entity_mapper.get_mapped(self.0);
-    }
-}
+pub struct Target(#[entities] pub Entity);
 
 /// Whether the transition should be treated as External (default) or Internal.
 #[derive(Component, Reflect, Default, Clone, Copy)]
@@ -75,7 +64,7 @@ pub struct After {
 pub struct EdgeTimer(pub Timer);
 
 /// Attach this to a transition entity to react to a specific event `E`.
-#[derive(Reflect)]
+#[derive(Reflect, Component)]
 #[reflect(Component)]
 pub struct TransitionListener<E: Event> {
     #[reflect(ignore)]
@@ -86,16 +75,6 @@ impl<E: Event> Default for TransitionListener<E> {
     fn default() -> Self {
         Self { _marker: PhantomData }
     }
-}
-
-impl<T: Event> Component for TransitionListener<T> {
-    const STORAGE_TYPE: StorageType = StorageType::Table;
-
-    type Mutability = Mutable;
-}
-
-impl<E: Event> MapEntities for TransitionListener<E> {
-    fn map_entities<M: EntityMapper>(&mut self, _entity_mapper: &mut M) {}
 }
 
 /// On EnterState(source), evaluate AlwaysEdge transitions listed in `Transitions(source)` in order.
@@ -146,16 +125,22 @@ pub fn transition_listener<E: Event>(
 ){
     // If the event target is a machine root, propagate to active leaves and evaluate in one pass
     if let Ok(current) = current_state_query.get(trigger.target()) {
+        let machine_root = trigger.target();
+        let mut visited: HashSet<Entity> = HashSet::new();
         for &leaf in current.0.iter() {
-            try_fire_first_matching_edge(
+            if try_fire_first_matching_edge_on_branch(
                 leaf,
+                machine_root,
                 &transitions_query,
                 &listener_query,
                 &edge_target_query,
                 &guards_query,
                 &child_of_query,
+                &mut visited,
                 &mut commands,
-            );
+            ) {
+                return;
+            }
         }
         return;
     }
@@ -181,8 +166,8 @@ fn try_fire_first_matching_edge<E: Event>(
     guards_query: &Query<&Guards>,
     child_of_query: &Query<&StateChildOf>,
     commands: &mut Commands,
-) {
-    let Ok(transitions) = transitions_query.get(source) else { return; };
+) -> bool {
+    let Ok(transitions) = transitions_query.get(source) else { return false; };
 
     for edge in transitions.get_transitions().iter().copied() {
         if listener_query.get(edge).is_err() { continue; }
@@ -195,8 +180,46 @@ fn try_fire_first_matching_edge<E: Event>(
 
         let root = child_of_query.root_ancestor(source);
         commands.trigger_targets(Transition { source, edge }, root);
-        break;
+        return true;
     }
+    false
+}
+
+fn try_fire_first_matching_edge_on_branch<E: Event>(
+    start: Entity,
+    machine_root: Entity,
+    transitions_query: &Query<&Transitions>,
+    listener_query: &Query<&TransitionListener<E>>, 
+    edge_target_query: &Query<&Target>,
+    guards_query: &Query<&Guards>,
+    child_of_query: &Query<&StateChildOf>,
+    visited: &mut HashSet<Entity>,
+    commands: &mut Commands,
+) -> bool {
+    // Walk from leaf up to (but not beyond) the machine root
+    let mut current = Some(start);
+    while let Some(state) = current {
+        // Skip states already checked across other branches
+        if !visited.insert(state) {
+            if state == machine_root { break; }
+            current = child_of_query.get(state).ok().map(|rel| rel.0);
+            continue;
+        }
+        if try_fire_first_matching_edge(
+            state,
+            transitions_query,
+            listener_query,
+            edge_target_query,
+            guards_query,
+            child_of_query,
+            commands,
+        ) {
+            return true;
+        }
+        if state == machine_root { break; }
+        current = child_of_query.get(state).ok().map(|rel| rel.0);
+    }
+    false
 }
 
 
