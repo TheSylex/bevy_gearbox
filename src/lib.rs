@@ -1,7 +1,6 @@
 use bevy::{platform::collections::HashSet, prelude::*, reflect::Reflect};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::{component::StorageType};
-use bevy_ecs::entity::MapEntities;
 
 use crate::{active::{Active, Inactive}, guards::Guards, history::{History, HistoryState}};
 
@@ -57,18 +56,10 @@ impl Plugin for GearboxPlugin {
 pub struct StateMachineRoot;
 
 // State-specific hierarchy relationships
-#[derive(Reflect, Component)]
-#[reflect(Component)]
+#[derive(Component, Default, Debug, PartialEq, Eq, Reflect)]
 #[relationship_target(relationship = StateChildOf, linked_spawn)]
+#[reflect(Component, FromWorld, Default)]
 pub struct StateChildren(Vec<Entity>);
-
-impl MapEntities for StateChildren {
-    fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {
-        for child in &mut self.0 {
-            *child = entity_mapper.get_mapped(*child);
-        }
-    }
-}
 
 impl<'a> IntoIterator for &'a StateChildren {
     type Item = <Self::IntoIter as Iterator>::Item;
@@ -81,14 +72,21 @@ impl<'a> IntoIterator for &'a StateChildren {
     }
 }
 
-#[derive(Reflect, Component)]
-#[reflect(Component)]
-#[relationship(relationship_target = StateChildren)]
-pub struct StateChildOf(pub Entity);
+impl StateChildren {
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+}
 
-impl MapEntities for StateChildOf {
-    fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {
-        self.0 = entity_mapper.get_mapped(self.0);
+#[derive(Component, Clone, PartialEq, Eq, Debug, Reflect)]
+#[relationship(relationship_target = StateChildren)]
+#[reflect(Component, PartialEq, Debug, FromWorld, Clone)]
+pub struct StateChildOf(#[entities] pub Entity);
+
+impl FromWorld for StateChildOf {
+    #[inline(always)]
+    fn from_world(_world: &mut World) -> Self {
+        StateChildOf(Entity::PLACEHOLDER)
     }
 }
 
@@ -140,6 +138,12 @@ impl Component for InitialState {
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct CurrentState(pub HashSet<Entity>);
+
+impl CurrentState {
+    pub fn new() -> Self {
+        Self(HashSet::new())
+    }
+}
 
 /// An event that is triggered on a state entity when it is being entered.
 #[derive(Event, Reflect, Default)]
@@ -473,7 +477,7 @@ pub fn get_all_leaf_states(
 
 /// Triggers the InitializeMachine event when AbilityMachine component is added.
 fn initialize_state_machine(
-    trigger: Trigger<OnAdd, StateMachineRoot>,
+    trigger: Trigger<OnAdd, CurrentState>,
     initial_state_query: Query<&InitialState>,
     mut commands: Commands,
 ) {

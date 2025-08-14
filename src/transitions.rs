@@ -3,37 +3,43 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use std::collections::HashSet;
-use bevy_ecs::entity::MapEntities;
 
 use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, CurrentState};
 
 /// Outbound transitions from a source state. Order defines priority (first match wins).
-#[derive(Reflect, Component)]
-#[reflect(Component)]
+#[derive(Component, Default, Debug, PartialEq, Eq, Reflect)]
 #[relationship_target(relationship = Source, linked_spawn)]
+#[reflect(Component, FromWorld, Default)]
 pub struct Transitions(Vec<Entity>);
 
-impl MapEntities for Transitions {
-    fn map_entities<E: EntityMapper>(&mut self, entity_mapper: &mut E) {
-        for edge in &mut self.0 {
-            *edge = entity_mapper.get_mapped(*edge);
-        }
+impl<'a> IntoIterator for &'a Transitions {
+    type Item = <Self::IntoIter as Iterator>::Item;
+
+    type IntoIter = std::slice::Iter<'a, Entity>;
+
+    #[inline(always)]
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
 }
 
 impl Transitions {
     pub fn new() -> Self {
-        Self(vec![])
-    }
-    pub fn get_transitions(&self) -> &[Entity] {
-        &self.0
+        Self(Vec::new())
     }
 }
 
-#[derive(Component, Reflect)]
-#[reflect(Component)]
+#[derive(Component, Clone, PartialEq, Eq, Debug, Reflect)]
 #[relationship(relationship_target = Transitions)]
+#[reflect(Component, PartialEq, Debug, FromWorld, Clone)]
 pub struct Source(#[entities] pub Entity);
+
+impl FromWorld for Source {
+    #[inline(always)]
+    fn from_world(_world: &mut World) -> Self {
+        Source(Entity::PLACEHOLDER)
+    }
+}
 
 /// Target for an edge transition.
 #[derive(Component, Reflect)]
@@ -91,7 +97,7 @@ pub fn transition_always(
     let Ok(transitions) = transitions_query.get(source) else { return; };
 
     // Evaluate in order; fire the first allowed transition
-    for edge in transitions.get_transitions().iter().copied() {
+    for edge in transitions.into_iter().copied() {
         if always_query.get(edge).is_err() { continue; }
 
         // Resolve target from edge
@@ -169,7 +175,7 @@ fn try_fire_first_matching_edge<E: Event>(
 ) -> bool {
     let Ok(transitions) = transitions_query.get(source) else { return false; };
 
-    for edge in transitions.get_transitions().iter().copied() {
+    for edge in transitions.into_iter().copied() {
         if listener_query.get(edge).is_err() { continue; }
 
         if let Ok(guards) = guards_query.get(edge) {
@@ -241,7 +247,7 @@ pub fn check_always_on_guards_changed(
 
         // Ensure this edge is actually listed on the source's transitions (priority set)
         let Ok(transitions) = transitions_query.get(source) else { continue; };
-        if !transitions.get_transitions().iter().any(|&e| e == edge) { continue; }
+        if !transitions.into_iter().any(|&e| e == edge) { continue; }
 
         // Ensure edge has a valid target; then fire
         if !edge_target { continue; }
@@ -260,7 +266,7 @@ pub fn start_after_on_enter(
 ) {
     let source = trigger.target();
     let Ok(transitions) = transitions_query.get(source) else { return; };
-    for edge in transitions.get_transitions().iter().copied() {
+    for edge in transitions.into_iter().copied() {
         if let Ok(after) = after_query.get(edge) {
             commands.entity(edge).insert(EdgeTimer(Timer::new(after.duration, TimerMode::Once)));
         }
@@ -276,7 +282,7 @@ pub fn cancel_after_on_exit(
 ) {
     let source = trigger.target();
     let Ok(transitions) = transitions_query.get(source) else { return; };
-    for edge in transitions.get_transitions().iter().copied() {
+    for edge in transitions.into_iter().copied() {
         if after_query.get(edge).is_ok() {
             commands.entity(edge).remove::<EdgeTimer>();
         }
@@ -296,7 +302,7 @@ pub fn tick_after_system(
 ) {
     for (source, transitions) in sources_with_transitions.iter() {
         // Walk edges in priority order; fire first eligible
-        for edge in transitions.get_transitions().iter().copied() {
+        for edge in transitions.into_iter().copied() {
             if after_query.get(edge).is_err() { continue; }
             let Ok(mut timer) = timer_query.get_mut(edge) else { continue; };
             timer.0.tick(time.delta());
