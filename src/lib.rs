@@ -21,10 +21,9 @@ impl Plugin for GearboxPlugin {
             .add_observer(active::add_inactive)
             .add_observer(initialize_state_machine);
 
-        app.register_type::<StateMachineRoot>();
         app.register_type::<Parallel>();
         app.register_type::<InitialState>();
-        app.register_type::<CurrentState>();
+        app.register_type::<StateMachineRoot>();
         app.register_type::<History>();
         app.register_type::<HistoryState>();
         app.register_type::<StateChildren>();
@@ -49,11 +48,6 @@ impl Plugin for GearboxPlugin {
         app.add_systems(Update, transitions::tick_after_system);
     }
 }
-
-#[derive(Component, Reflect, Default)]
-#[reflect(Component)]
-#[require(CurrentState)]
-pub struct StateMachineRoot;
 
 // State-specific hierarchy relationships
 #[derive(Component, Default, Debug, PartialEq, Eq, Reflect)]
@@ -137,9 +131,9 @@ impl Component for InitialState {
 /// leaf states. In a machine with parallel regions, this can contain multiple entities.
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
-pub struct CurrentState(pub HashSet<Entity>);
+pub struct StateMachineRoot(pub HashSet<Entity>);
 
-impl CurrentState {
+impl StateMachineRoot {
     pub fn new() -> Self {
         Self(HashSet::new())
     }
@@ -159,7 +153,7 @@ pub struct ExitState;
 /// Also handles history state saving and restoration.
 pub fn transition_observer(
     trigger: Trigger<Transition>,
-    mut machine_query: Query<&mut CurrentState>,
+    mut machine_query: Query<&mut StateMachineRoot>,
     parallel_query: Query<&Parallel>,
     children_query: Query<&StateChildren>,
     initial_state_query: Query<&InitialState>,
@@ -477,7 +471,7 @@ pub fn get_all_leaf_states(
 
 /// Triggers the InitializeMachine event when AbilityMachine component is added.
 fn initialize_state_machine(
-    trigger: Trigger<OnAdd, CurrentState>,
+    trigger: Trigger<OnAdd, StateMachineRoot>,
     initial_state_query: Query<&InitialState>,
     mut commands: Commands,
 ) {

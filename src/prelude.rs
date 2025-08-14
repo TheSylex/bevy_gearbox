@@ -7,11 +7,10 @@ pub use crate::{
     // Components
     active::Active,
     active::Inactive,
-    CurrentState,
+    StateMachineRoot,
     guards::Guards,
     history::HistoryState,
     InitialState,
-    StateMachineRoot,
     state_component::InsertRootWhileActive,
     Parallel,
     state_component::RemoveRootWhileActive,

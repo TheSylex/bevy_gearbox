@@ -87,7 +87,7 @@ fn setup(mut commands: Commands) {
         world.entity_mut(machine_entity).insert((
             Name::new("AbilityStateMachine"),
             AbilityMachine,
-            StateMachineRoot,
+            StateMachineRoot::new(),
             InitialState(ready),
         ));
     });
