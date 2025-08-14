@@ -54,6 +54,13 @@ fn setup(mut commands: Commands) {
         let ready_cast_ability = world.spawn(()).id();
         let repeating_on_complete = world.spawn(()).id();
 
+        world.entity_mut(machine_entity).insert((
+            Name::new("AbilityStateMachine"),
+            AbilityMachine,
+            StateMachine::new(),
+            InitialState(ready),
+        ));
+
         world.entity_mut(ready).insert((
             Name::new("Ready"),
             StateChildOf(machine_entity),
@@ -82,13 +89,6 @@ fn setup(mut commands: Commands) {
             TransitionListener::<OnComplete>::default(),
             TransitionKind::External,
             Source(repeating),
-        ));
-
-        world.entity_mut(machine_entity).insert((
-            Name::new("AbilityStateMachine"),
-            AbilityMachine,
-            StateMachine::new(),
-            InitialState(ready),
         ));
     });
 }
