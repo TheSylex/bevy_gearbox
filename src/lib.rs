@@ -23,7 +23,7 @@ impl Plugin for GearboxPlugin {
 
         app.register_type::<Parallel>();
         app.register_type::<InitialState>();
-        app.register_type::<StateMachineRoot>();
+        app.register_type::<StateMachine>();
         app.register_type::<History>();
         app.register_type::<HistoryState>();
         app.register_type::<StateChildren>();
@@ -131,9 +131,9 @@ impl Component for InitialState {
 /// leaf states. In a machine with parallel regions, this can contain multiple entities.
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
-pub struct StateMachineRoot(pub HashSet<Entity>);
+pub struct StateMachine(pub HashSet<Entity>);
 
-impl StateMachineRoot {
+impl StateMachine {
     pub fn new() -> Self {
         Self(HashSet::new())
     }
@@ -153,7 +153,7 @@ pub struct ExitState;
 /// Also handles history state saving and restoration.
 pub fn transition_observer(
     trigger: Trigger<Transition>,
-    mut machine_query: Query<&mut StateMachineRoot>,
+    mut machine_query: Query<&mut StateMachine>,
     parallel_query: Query<&Parallel>,
     children_query: Query<&StateChildren>,
     initial_state_query: Query<&InitialState>,
@@ -471,7 +471,7 @@ pub fn get_all_leaf_states(
 
 /// Triggers the InitializeMachine event when AbilityMachine component is added.
 fn initialize_state_machine(
-    trigger: Trigger<OnAdd, StateMachineRoot>,
+    trigger: Trigger<OnAdd, StateMachine>,
     initial_state_query: Query<&InitialState>,
     mut commands: Commands,
 ) {

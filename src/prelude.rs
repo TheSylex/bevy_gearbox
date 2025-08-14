@@ -7,7 +7,7 @@ pub use crate::{
     // Components
     active::Active,
     active::Inactive,
-    StateMachineRoot,
+    StateMachine,
     guards::Guards,
     history::HistoryState,
     InitialState,

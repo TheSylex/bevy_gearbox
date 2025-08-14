@@ -4,7 +4,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 use std::collections::HashSet;
 
-use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachineRoot};
+use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachine};
 
 /// Outbound transitions from a source state. Order defines priority (first match wins).
 #[derive(Component, Default, Debug, PartialEq, Eq, Reflect)]
@@ -126,7 +126,7 @@ pub fn transition_listener<E: Event>(
     edge_target_query: Query<&Target>,
     guards_query: Query<&Guards>,
     child_of_query: Query<&StateChildOf>,
-    current_state_query: Query<&StateMachineRoot>,
+    current_state_query: Query<&StateMachine>,
     mut commands: Commands,
 ){
     // If the event target is a machine root, propagate to active leaves and evaluate in one pass
