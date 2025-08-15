@@ -7,6 +7,8 @@ pub use crate::{
     // Components
     active::Active,
     active::Inactive,
+    StateChildOf,
+    StateChildren,
     StateMachine,
     guards::Guards,
     history::HistoryState,
@@ -25,6 +27,7 @@ pub use crate::{
     state_component::remove_root_while_enter,
     state_component::remove_root_while_exit,
     transitions::Transitions,
+    transitions::Source,
     transitions::Target,
     transitions::AlwaysEdge,
     transitions::TransitionKind,
