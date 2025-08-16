@@ -4,7 +4,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 use std::collections::HashSet;
 
-use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachine};
+use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachine, ExitState};
 
 /// Outbound transitions from a source state. Order defines priority (first match wins).
 #[derive(Component, Default, Debug, PartialEq, Eq, Reflect)]
@@ -83,6 +83,39 @@ impl<E: Event> Default for TransitionListener<E> {
     }
 }
 
+/// A component that can be added to states to defer specific event types.
+/// Events of type `E` that arrive while this state is active will be stored
+/// and replayed when the state is exited.
+#[derive(Component)]
+pub struct DeferEvents<E: Event> {
+    pub deferred: Vec<E>,
+    #[allow(dead_code)]
+    _marker: PhantomData<E>,
+}
+
+impl<E: Event> Default for DeferEvents<E> {
+    fn default() -> Self {
+        Self {
+            deferred: Vec::new(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<E: Event> DeferEvents<E> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
+    pub fn defer_event(&mut self, event: E) {
+        self.deferred.push(event);
+    }
+    
+    pub fn take_deferred(&mut self) -> Vec<E> {
+        std::mem::take(&mut self.deferred)
+    }
+}
+
 /// On EnterState(source), evaluate AlwaysEdge transitions listed in `Transitions(source)` in order.
 pub fn transition_always(
     trigger: Trigger<EnterState>,
@@ -119,7 +152,7 @@ pub fn transition_always(
 
 /// Generic listener: on event `E` at a source state, scan its `Transitions` for a matching
 /// transition entity with `TransitionListener<E>`, in priority order.
-pub fn transition_listener<E: Event>(
+pub fn transition_listener<E: Event + Clone>(
     trigger: Trigger<E>,
     transitions_query: Query<&Transitions>,
     listener_query: Query<&TransitionListener<E>>, 
@@ -127,8 +160,12 @@ pub fn transition_listener<E: Event>(
     guards_query: Query<&Guards>,
     child_of_query: Query<&StateChildOf>,
     current_state_query: Query<&StateMachine>,
+    mut defer_query: Query<&mut DeferEvents<E>>,
+    active_query: Query<(), With<Active>>,
     mut commands: Commands,
 ){
+    let event = trigger.event();
+    
     // If the event target is a machine root, propagate to active leaves and evaluate in one pass
     if let Ok(current) = current_state_query.get(trigger.target()) {
         let machine_root = trigger.target();
@@ -136,12 +173,15 @@ pub fn transition_listener<E: Event>(
         for &leaf in current.0.iter() {
             if try_fire_first_matching_edge_on_branch(
                 leaf,
+                event,
                 machine_root,
                 &transitions_query,
                 &listener_query,
                 &edge_target_query,
                 &guards_query,
                 &child_of_query,
+                &mut defer_query,
+                &active_query,
                 &mut visited,
                 &mut commands,
             ) {
@@ -155,24 +195,39 @@ pub fn transition_listener<E: Event>(
     let source = trigger.target();
     try_fire_first_matching_edge(
         source,
+        event,
         &transitions_query,
         &listener_query,
         &edge_target_query,
         &guards_query,
         &child_of_query,
+        &mut defer_query,
+        &active_query,
         &mut commands,
     );
 }
 
-fn try_fire_first_matching_edge<E: Event>(
+fn try_fire_first_matching_edge<E: Event + Clone>(
     source: Entity,
+    event: &E,
     transitions_query: &Query<&Transitions>,
     listener_query: &Query<&TransitionListener<E>>, 
     edge_target_query: &Query<&Target>,
     guards_query: &Query<&Guards>,
     child_of_query: &Query<&StateChildOf>,
+    defer_query: &mut Query<&mut DeferEvents<E>>,
+    active_query: &Query<(), With<Active>>,
     commands: &mut Commands,
 ) -> bool {
+    // Check if this state should defer this event type
+    if let Ok(mut defer_events) = defer_query.get_mut(source) {
+        if active_query.get(source).is_ok() {
+            // State is active and has defer component - defer the event
+            defer_events.defer_event(event.clone());
+            return true; // Event was handled (deferred)
+        }
+    }
+
     let Ok(transitions) = transitions_query.get(source) else { return false; };
 
     for edge in transitions.into_iter().copied() {
@@ -191,14 +246,17 @@ fn try_fire_first_matching_edge<E: Event>(
     false
 }
 
-fn try_fire_first_matching_edge_on_branch<E: Event>(
+fn try_fire_first_matching_edge_on_branch<E: Event + Clone>(
     start: Entity,
+    event: &E,
     machine_root: Entity,
     transitions_query: &Query<&Transitions>,
     listener_query: &Query<&TransitionListener<E>>, 
     edge_target_query: &Query<&Target>,
     guards_query: &Query<&Guards>,
     child_of_query: &Query<&StateChildOf>,
+    defer_query: &mut Query<&mut DeferEvents<E>>,
+    active_query: &Query<(), With<Active>>,
     visited: &mut HashSet<Entity>,
     commands: &mut Commands,
 ) -> bool {
@@ -213,11 +271,14 @@ fn try_fire_first_matching_edge_on_branch<E: Event>(
         }
         if try_fire_first_matching_edge(
             state,
+            event,
             transitions_query,
             listener_query,
             edge_target_query,
             guards_query,
             child_of_query,
+            defer_query,
+            active_query,
             commands,
         ) {
             return true;
@@ -322,6 +383,30 @@ pub fn tick_after_system(
             let root = child_of_query.root_ancestor(source);
             commands.trigger_targets(Transition { source, edge }, root);
             break; // only one delayed transition per source per frame
+        }
+    }
+}
+
+/// Generic system to replay deferred events when a state exits.
+/// This should be registered as an observer for ExitState events.
+pub fn replay_deferred_events<E: Event + Clone>(
+    trigger: Trigger<ExitState>,
+    mut defer_query: Query<&mut DeferEvents<E>>,
+    child_of_query: Query<&StateChildOf>,
+    mut commands: Commands,
+) {
+    let exited_state = trigger.target();
+    
+    if let Ok(mut defer_events) = defer_query.get_mut(exited_state) {
+        let deferred = defer_events.take_deferred();
+        if !deferred.is_empty() {
+            let root_entity = child_of_query.root_ancestor(exited_state);
+            println!("   🔄 Replaying {} deferred events from state", deferred.len());
+            
+            // Replay all deferred events to the machine root
+            for event in deferred {
+                commands.trigger_targets(event, root_entity);
+            }
         }
     }
 }
