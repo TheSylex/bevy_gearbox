@@ -385,6 +385,7 @@ pub fn get_all_leaf_states(
     child_of_query: &Query<&StateChildOf>,
     commands: &mut Commands,
 ) -> HashSet<Entity> {
+
     let mut leaves = HashSet::new();
     let mut stack = vec![start_node];
 

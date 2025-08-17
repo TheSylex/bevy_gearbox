@@ -4,7 +4,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 use std::collections::HashSet;
 
-use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachine, ExitState};
+use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachine, ExitState, StateChildren, Parallel};
 
 /// Outbound transitions from a source state. Order defines priority (first match wins).
 #[derive(Component, Default, Debug, PartialEq, Eq, Reflect)]
@@ -145,6 +145,26 @@ pub fn transition_always(
     }
 }
 
+/// Helper function to find the parallel region root for a given state.
+/// Returns the state itself if it's not under a parallel region.
+fn find_parallel_region_root(
+    state: Entity,
+    child_of_query: &Query<&StateChildOf>,
+    parallel_query: &Query<&Parallel>,
+) -> Entity {
+    // Walk up the hierarchy to find if we're under a parallel state
+    let mut previous_ancestor = state;
+    for ancestor in child_of_query.iter_ancestors(state) {
+        if parallel_query.contains(ancestor) {
+            return previous_ancestor;
+        }
+        previous_ancestor = ancestor;
+    }
+
+    // Not under a parallel state, return the state itself
+    state
+}
+
 /// Generic listener: on event `E` at a source state, scan its `Transitions` for a matching
 /// transition entity with `TransitionListener<E>`, in priority order.
 pub fn transition_listener<E: Event + Clone>(
@@ -157,6 +177,7 @@ pub fn transition_listener<E: Event + Clone>(
     current_state_query: Query<&StateMachine>,
     mut defer_query: Query<&mut DeferEvent<E>>,
     active_query: Query<(), With<Active>>,
+    parallel_query: Query<&Parallel>,
     mut commands: Commands,
 ){
     let event = trigger.event();
@@ -165,7 +186,21 @@ pub fn transition_listener<E: Event + Clone>(
     if let Ok(current) = current_state_query.get(trigger.target()) {
         let machine_root = trigger.target();
         let mut visited: HashSet<Entity> = HashSet::new();
+        let mut fired_regions: HashSet<Entity> = HashSet::new();
+        
         for &leaf in current.0.iter() {
+            // Find which parallel region this leaf belongs to
+            let region_root = find_parallel_region_root(
+                leaf, 
+                &child_of_query,
+                &parallel_query,
+            );
+            
+            // Skip if we've already fired a transition in this parallel region
+            if fired_regions.contains(&region_root) {
+                continue;
+            }
+            
             if try_fire_first_matching_edge_on_branch(
                 leaf,
                 event,
@@ -180,7 +215,9 @@ pub fn transition_listener<E: Event + Clone>(
                 &mut visited,
                 &mut commands,
             ) {
-                return;
+                // Mark this parallel region as having fired a transition
+                fired_regions.insert(region_root);
+                // Don't return - continue to allow other parallel regions to fire
             }
         }
         return;
@@ -395,7 +432,6 @@ pub fn replay_deferred_event<E: Event + Clone>(
         let deferred = defer_event.take_deferred();
         if let Some(deferred) = deferred {
             let root_entity = child_of_query.root_ancestor(exited_state);
-            println!("   🔄 Replaying deferred event from state");
             
             // Replay all deferred event to the machine root
             commands.trigger_targets(deferred, root_entity);
