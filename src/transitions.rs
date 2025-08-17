@@ -83,21 +83,21 @@ impl<E: Event> Default for TransitionListener<E> {
     }
 }
 
-/// A component that can be added to states to defer specific event types.
-/// Events of type `E` that arrive while this state is active will be stored
+/// A component that can be added to states to an event of a specific type.
+/// Event of type `E` that arrive while this state is active will be stored
 /// and replayed when the state is exited.
 #[derive(Component)]
-pub struct DeferEvents<E: Event> {
+pub struct DeferEvent<E: Event> {
     pub deferred: Option<E>,
 }
 
-impl<E: Event> Default for DeferEvents<E> {
+impl<E: Event> Default for DeferEvent<E> {
     fn default() -> Self {
         Self { deferred: None }
     }
 }
 
-impl<E: Event> DeferEvents<E> {
+impl<E: Event> DeferEvent<E> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -155,7 +155,7 @@ pub fn transition_listener<E: Event + Clone>(
     guards_query: Query<&Guards>,
     child_of_query: Query<&StateChildOf>,
     current_state_query: Query<&StateMachine>,
-    mut defer_query: Query<&mut DeferEvents<E>>,
+    mut defer_query: Query<&mut DeferEvent<E>>,
     active_query: Query<(), With<Active>>,
     mut commands: Commands,
 ){
@@ -210,15 +210,15 @@ fn try_fire_first_matching_edge<E: Event + Clone>(
     edge_target_query: &Query<&Target>,
     guards_query: &Query<&Guards>,
     child_of_query: &Query<&StateChildOf>,
-    defer_query: &mut Query<&mut DeferEvents<E>>,
+    defer_query: &mut Query<&mut DeferEvent<E>>,
     active_query: &Query<(), With<Active>>,
     commands: &mut Commands,
 ) -> bool {
     // Check if this state should defer this event type
-    if let Ok(mut defer_events) = defer_query.get_mut(source) {
+    if let Ok(mut defer_event) = defer_query.get_mut(source) {
         if active_query.get(source).is_ok() {
             // State is active and has defer component - defer the event
-            defer_events.defer_event(event.clone());
+            defer_event.defer_event(event.clone());
             return true; // Event was handled (deferred)
         }
     }
@@ -250,7 +250,7 @@ fn try_fire_first_matching_edge_on_branch<E: Event + Clone>(
     edge_target_query: &Query<&Target>,
     guards_query: &Query<&Guards>,
     child_of_query: &Query<&StateChildOf>,
-    defer_query: &mut Query<&mut DeferEvents<E>>,
+    defer_query: &mut Query<&mut DeferEvent<E>>,
     active_query: &Query<(), With<Active>>,
     visited: &mut HashSet<Entity>,
     commands: &mut Commands,
@@ -382,22 +382,22 @@ pub fn tick_after_system(
     }
 }
 
-/// Generic system to replay deferred events when a state exits.
-pub fn replay_deferred_events<E: Event + Clone>(
+/// Generic system to replay deferred event when a state exits.
+pub fn replay_deferred_event<E: Event + Clone>(
     trigger: Trigger<ExitState>,
-    mut defer_query: Query<&mut DeferEvents<E>>,
+    mut defer_query: Query<&mut DeferEvent<E>>,
     child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
     let exited_state = trigger.target();
     
-    if let Ok(mut defer_events) = defer_query.get_mut(exited_state) {
-        let deferred = defer_events.take_deferred();
+    if let Ok(mut defer_event) = defer_query.get_mut(exited_state) {
+        let deferred = defer_event.take_deferred();
         if let Some(deferred) = deferred {
             let root_entity = child_of_query.root_ancestor(exited_state);
             println!("   🔄 Replaying deferred event from state");
             
-            // Replay all deferred events to the machine root
+            // Replay all deferred event to the machine root
             commands.trigger_targets(deferred, root_entity);
         }
     }

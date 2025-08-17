@@ -10,7 +10,7 @@ pub use crate::{
     StateChildOf,
     StateChildren,
     StateMachine,
-    transitions::DeferEvents,
+    transitions::DeferEvent,
     guards::Guards,
     history::HistoryState,
     InitialState,
@@ -35,5 +35,5 @@ pub use crate::{
     transitions::TransitionKind,
     transitions::TransitionListener,
     transitions::transition_listener,
-    transitions::replay_deferred_events,
+    transitions::replay_deferred_event,
 };

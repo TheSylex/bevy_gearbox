@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_gearbox::prelude::*;
-use bevy_gearbox::transitions::{Source, After, DeferEvents};
+use bevy_gearbox::transitions::{Source, After, DeferEvent};
 use bevy_gearbox::GearboxPlugin;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -19,7 +19,7 @@ fn main() {
         .add_observer(transition_listener::<RequestClose>)
         .add_observer(print_enter_state_messages)
         .add_observer(print_exit_state_messages)
-        .add_observer(replay_deferred_events::<RequestClose>)
+        .add_observer(replay_deferred_event::<RequestClose>)
         .add_state_component::<DoorClosed>()
         .add_state_component::<DoorOpening>()
         .add_state_component::<DoorOpen>()
@@ -99,7 +99,7 @@ fn setup(mut commands: Commands) {
             Name::new("Opening"),
             StateChildOf(machine_entity),
             StateComponent(DoorOpening),
-            DeferEvents::<RequestClose>::new(), // Defer RequestClose while opening
+            DeferEvent::<RequestClose>::new(), // Defer RequestClose while opening
         ));
 
         world.entity_mut(open).insert((
