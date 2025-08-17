@@ -11,8 +11,7 @@ keywords = ["bevy", "state-machine", "gamedev", "ecs"]
 categories = ["game-development", "game-engines"]
 
 [dependencies]
-bevy = "0.16.1"
-bevy_ecs = { version = "0.16.1", default-features = false }
+bevy = { version = "0.16.1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 bevy = { version = "0.16.1", features = ["default"] }

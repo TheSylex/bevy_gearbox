@@ -1,6 +1,6 @@
 use bevy::{platform::collections::HashSet, prelude::*, reflect::Reflect};
-use bevy_ecs::component::Mutable;
-use bevy_ecs::{component::StorageType};
+use bevy::ecs::component::Mutable;
+use bevy::ecs::{component::StorageType};
 
 use crate::{active::{Active, Inactive}, guards::Guards, history::{History, HistoryState}};
 
