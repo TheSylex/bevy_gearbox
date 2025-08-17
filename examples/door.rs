@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_gearbox::prelude::*;
-use bevy_gearbox::transitions::{Source, After};
+use bevy_gearbox::transitions::{Source, After, DeferEvents};
 use bevy_gearbox::GearboxPlugin;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -15,12 +15,15 @@ fn main() {
         .add_plugins(WorldInspectorPlugin::new())
         .add_systems(Startup, setup)
         .add_systems(Update, input_system)
-        .add_observer(transition_listener::<PlayerNearby>)
-        .add_observer(transition_listener::<PlayerNotNearby>)
+        .add_observer(transition_listener::<RequestOpen>)
+        .add_observer(transition_listener::<RequestClose>)
         .add_observer(print_enter_state_messages)
         .add_observer(print_exit_state_messages)
-        .add_observer(replay_deferred_events::<PlayerNearby>)
-        .add_observer(replay_deferred_events::<PlayerNotNearby>)
+        .add_observer(replay_deferred_events::<RequestClose>)
+        .add_state_component::<DoorClosed>()
+        .add_state_component::<DoorOpening>()
+        .add_state_component::<DoorOpen>()
+        .add_state_component::<DoorClosing>()
         .run();
 }
 
@@ -30,15 +33,33 @@ fn main() {
 #[derive(Component)]
 struct DoorMachine;
 
+// --- State Marker Components ---
+
+/// Marker component for when the door is closed
+#[derive(Component, Clone)]
+struct DoorClosed;
+
+/// Marker component for when the door is opening
+#[derive(Component, Clone)]
+struct DoorOpening;
+
+/// Marker component for when the door is open
+#[derive(Component, Clone)]
+struct DoorOpen;
+
+/// Marker component for when the door is closing
+#[derive(Component, Clone)]
+struct DoorClosing;
+
 // --- Events ---
 
-/// Event triggered when player gets nearby (W key)
+/// Event triggered when requesting the door to open (W key)
 #[derive(Event, Clone)]
-struct PlayerNearby;
+struct RequestOpen;
 
-/// Event triggered when player moves away (E key)
+/// Event triggered when requesting the door to close (E key)
 #[derive(Event, Clone)]
-struct PlayerNotNearby;
+struct RequestClose;
 
 /// Creates the door state machine hierarchy.
 fn setup(mut commands: Commands) {
@@ -57,6 +78,7 @@ fn setup(mut commands: Commands) {
         let opening_to_open = world.spawn(()).id();
         let open_to_closing = world.spawn(()).id();
         let closing_to_closed = world.spawn(()).id();
+        let closing_to_opening = world.spawn(()).id();
 
         // Set up the machine root
         world.entity_mut(machine_entity).insert((
@@ -66,34 +88,37 @@ fn setup(mut commands: Commands) {
             InitialState(closed),
         ));
 
-        // Set up states
+        // Set up states with marker components
         world.entity_mut(closed).insert((
             Name::new("Closed"),
             StateChildOf(machine_entity),
+            StateComponent(DoorClosed),
         ));
 
         world.entity_mut(opening).insert((
             Name::new("Opening"),
             StateChildOf(machine_entity),
-            DeferEvents::<PlayerNotNearby>::new(), // Defer PlayerNotNearby while opening
+            StateComponent(DoorOpening),
+            DeferEvents::<RequestClose>::new(), // Defer RequestClose while opening
         ));
 
         world.entity_mut(open).insert((
             Name::new("Open"),
             StateChildOf(machine_entity),
+            StateComponent(DoorOpen),
         ));
 
         world.entity_mut(closing).insert((
             Name::new("Closing"),
             StateChildOf(machine_entity),
-            DeferEvents::<PlayerNearby>::new(), // Defer PlayerNearby while closing
+            StateComponent(DoorClosing),
         ));
 
         // Set up transitions - immediate event-driven transitions, then After delays
         world.entity_mut(closed_to_opening).insert((
-            Name::new("Closed -> Opening (PlayerNearby)"),
+            Name::new("Closed -> Opening (RequestOpen)"),
             Target(opening),
-            TransitionListener::<PlayerNearby>::default(),
+            TransitionListener::<RequestOpen>::default(),
             TransitionKind::External,
             Source(closed),
         ));
@@ -106,9 +131,9 @@ fn setup(mut commands: Commands) {
         ));
 
         world.entity_mut(open_to_closing).insert((
-            Name::new("Open -> Closing (PlayerNotNearby)"),
+            Name::new("Open -> Closing (RequestClose)"),
             Target(closing),
-            TransitionListener::<PlayerNotNearby>::default(),
+            TransitionListener::<RequestClose>::default(),
             TransitionKind::External,
             Source(open),
         ));
@@ -119,10 +144,18 @@ fn setup(mut commands: Commands) {
             Source(closing),
             After { duration: Duration::from_secs(1) }, // 1 second closing delay
         ));
+
+        world.entity_mut(closing_to_opening).insert((
+            Name::new("Closing -> Opening (RequestOpen)"),
+            Target(opening),
+            TransitionListener::<RequestOpen>::default(),
+            TransitionKind::External,
+            Source(closing),
+        ));
     });
 }
 
-/// Handles keyboard input for player proximity events.
+/// Handles keyboard input for door control events.
 fn input_system(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     query: Query<Entity, With<DoorMachine>>,
@@ -130,16 +163,16 @@ fn input_system(
 ) {
     let Ok(machine) = query.single() else { return };
     
-    // Press 'W' to simulate player getting nearby
+    // Press 'W' to request door open
     if keyboard_input.just_pressed(KeyCode::KeyW) {
-        println!("\n--- 'W' Pressed: Player approaches door (PlayerNearby event) ---");
-        commands.trigger_targets(PlayerNearby, machine);
+        println!("\n--- 'W' Pressed: Request door open (RequestOpen event) ---");
+        commands.trigger_targets(RequestOpen, machine);
     }
     
-    // Press 'E' to simulate player moving away
+    // Press 'E' to request door close
     if keyboard_input.just_pressed(KeyCode::KeyE) {
-        println!("\n--- 'E' Pressed: Player moves away from door (PlayerNotNearby event) ---");
-        commands.trigger_targets(PlayerNotNearby, machine);
+        println!("\n--- 'E' Pressed: Request door close (RequestClose event) ---");
+        commands.trigger_targets(RequestClose, machine);
     }
 }
 
@@ -149,15 +182,6 @@ fn input_system(
 fn print_enter_state_messages(trigger: Trigger<EnterState>, query: Query<&Name>) {
     if let Ok(name) = query.get(trigger.target()) {
         println!("[STATE ENTERED]: {}", name);
-        
-        // Add some visual feedback for door actions
-        match name.as_str() {
-            "Closed" => println!("   🚪 Door is closed and locked."),
-            "Opening" => println!("   🔄 Door is opening... (using After transition)"),
-            "Open" => println!("   🚪 Door is wide open!"),
-            "Closing" => println!("   🔄 Door is closing... (using After transition)"),
-            _ => {}
-        }
     }
 }
 

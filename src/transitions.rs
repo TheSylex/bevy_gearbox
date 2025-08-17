@@ -88,17 +88,12 @@ impl<E: Event> Default for TransitionListener<E> {
 /// and replayed when the state is exited.
 #[derive(Component)]
 pub struct DeferEvents<E: Event> {
-    pub deferred: Vec<E>,
-    #[allow(dead_code)]
-    _marker: PhantomData<E>,
+    pub deferred: Option<E>,
 }
 
 impl<E: Event> Default for DeferEvents<E> {
     fn default() -> Self {
-        Self {
-            deferred: Vec::new(),
-            _marker: PhantomData,
-        }
+        Self { deferred: None }
     }
 }
 
@@ -108,10 +103,10 @@ impl<E: Event> DeferEvents<E> {
     }
     
     pub fn defer_event(&mut self, event: E) {
-        self.deferred.push(event);
+        self.deferred = Some(event);
     }
     
-    pub fn take_deferred(&mut self) -> Vec<E> {
+    pub fn take_deferred(&mut self) -> Option<E> {
         std::mem::take(&mut self.deferred)
     }
 }
@@ -388,7 +383,6 @@ pub fn tick_after_system(
 }
 
 /// Generic system to replay deferred events when a state exits.
-/// This should be registered as an observer for ExitState events.
 pub fn replay_deferred_events<E: Event + Clone>(
     trigger: Trigger<ExitState>,
     mut defer_query: Query<&mut DeferEvents<E>>,
@@ -399,14 +393,12 @@ pub fn replay_deferred_events<E: Event + Clone>(
     
     if let Ok(mut defer_events) = defer_query.get_mut(exited_state) {
         let deferred = defer_events.take_deferred();
-        if !deferred.is_empty() {
+        if let Some(deferred) = deferred {
             let root_entity = child_of_query.root_ancestor(exited_state);
-            println!("   🔄 Replaying {} deferred events from state", deferred.len());
+            println!("   🔄 Replaying deferred event from state");
             
             // Replay all deferred events to the machine root
-            for event in deferred {
-                commands.trigger_targets(event, root_entity);
-            }
+            commands.trigger_targets(deferred, root_entity);
         }
     }
 }
