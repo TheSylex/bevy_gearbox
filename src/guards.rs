@@ -17,6 +17,10 @@ impl Guards {
         }
     }
 
+    pub fn has_guard(&self, guard: impl Guard) -> bool {
+        self.guards.contains(&guard.name())
+    }
+
     /// Adds a guard to the set. The guard is identified by its name.
     pub fn add_guard(&mut self, guard: impl Guard) {
         self.guards.insert(guard.name());
@@ -35,7 +39,19 @@ impl Guards {
 
 /// A trait for components that act as a guard. Guards are components that can be
 /// added or removed from a `Guards` entity to dynamically enable or disable transitions.
-pub trait Guard: Component {
+pub trait Guard {
     /// Returns the unique string identifier for this guard type.
     fn name(&self) -> String;
+}
+
+impl Guard for String {
+    fn name(&self) -> String {
+        self.clone()
+    }
+}
+
+impl Guard for &str {
+    fn name(&self) -> String {
+        self.to_string()
+    }
 }
