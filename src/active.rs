@@ -1,6 +1,6 @@
 use bevy::{prelude::*, reflect::Reflect};
 
-use crate::{EnterState, ExitState};
+use crate::{EnterState, ExitState, StateChildOf, StateMachine};
 
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
@@ -15,7 +15,14 @@ pub(crate) fn add_active(
     mut commands: Commands,
 ) {
     let target = trigger.target();
-    commands.entity(target).remove::<Inactive>().insert(Active);
+    commands.queue(move |world: &mut World| {
+        let root = world.query::<&StateChildOf>().query(world).root_ancestor(target);
+        let Some(StateMachine(state_machine)) = world.entity(root).get::<StateMachine>() else { return; };
+        if state_machine.contains(&target) {
+            world.entity_mut(target).remove::<Inactive>().insert(Active);
+        }
+    });
+    println!();
 }
 
 pub(crate) fn add_inactive(
@@ -23,5 +30,11 @@ pub(crate) fn add_inactive(
     mut commands: Commands,
 ) {
     let target = trigger.target();
-    commands.entity(target).remove::<Active>().insert(Inactive);
+    commands.queue(move |world: &mut World| {
+        let root = world.query::<&StateChildOf>().query(world).root_ancestor(target);
+        let Some(StateMachine(state_machine)) = world.entity(root).get::<StateMachine>() else { return; };
+        if !state_machine.contains(&target) {
+            world.entity_mut(target).remove::<Active>().insert(Inactive);
+        }
+    });
 }
