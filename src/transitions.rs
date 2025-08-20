@@ -203,7 +203,7 @@ pub fn transition_listener<E: Event + Clone>(
         let mut visited: HashSet<Entity> = HashSet::new();
         let mut fired_regions: HashSet<Entity> = HashSet::new();
         
-        for &leaf in current.0.iter() {
+        for &leaf in current.active_leaves.iter() {
             // Find which parallel region this leaf belongs to
             let region_root = find_parallel_region_root(
                 leaf, 
@@ -271,7 +271,7 @@ fn try_fire_first_matching_edge<E: Event + Clone>(
         if active_query.get(source).is_ok() {
             // State is active and has defer component - defer the event
             defer_event.defer_event(event.clone());
-            return true; // Event was handled (deferred)
+            return false; // Event was handled (deferred)
         }
     }
 
@@ -339,19 +339,20 @@ fn try_fire_first_matching_edge_on_branch<E: Event + Clone>(
 
 /// When guards on an Always edge change while its source state is active, re-check and fire if now allowed.
 pub fn check_always_on_guards_changed(
-    guards_changed_query: Query<(Entity, &Guards, &Source, Has<Target>, Has<Active>), (Changed<Guards>, With<AlwaysEdge>)>, 
+    guards_changed_query: Query<(Entity, &Guards, &Source, Has<Target>), (Changed<Guards>, With<AlwaysEdge>)>, 
     transitions_query: Query<&Transitions>,
     child_of_query: Query<&StateChildOf>,
+    active_query: Query<(), With<Active>>,
     mut commands: Commands,
 ) {
-    for (edge, guards, source, edge_target, active) in guards_changed_query.iter() {
+    for (edge, guards, source, edge_target) in guards_changed_query.iter() {
+
         let source = source.0;
+
+        if !active_query.contains(source) { continue; }
 
         // Only consider Always edges whose guard set changed to passing
         if !guards.check() { continue; }
-
-        // Find the source state for this edge and ensure it's active   
-        if !active { continue; }
 
         // Ensure this edge is actually listed on the source's transitions (priority set)
         let Ok(transitions) = transitions_query.get(source) else { continue; };

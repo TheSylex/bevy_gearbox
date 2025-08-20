@@ -121,15 +121,41 @@ pub struct Parallel;
 #[reflect(Component)]
 pub struct InitialState(#[entities] pub Entity);
 
-/// A component on the state machine's root entity that tracks the current active
-/// leaf states. In a machine with parallel regions, this can contain multiple entities.
+/// A component on the state machine's root entity that tracks the current active states.
+/// - `active` contains all active states (root, ancestors, and leaves)
+/// - `active_leaves` contains only the active leaf states
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
-pub struct StateMachine(#[entities] pub HashSet<Entity>);
+pub struct StateMachine {
+    #[entities]
+    pub active: HashSet<Entity>,
+    #[entities]
+    pub active_leaves: HashSet<Entity>,
+}
 
 impl StateMachine {
     pub fn new() -> Self {
-        Self(HashSet::new())
+        Self { active: HashSet::new(), active_leaves: HashSet::new() }
+    }
+
+    #[inline]
+    pub fn insert(&mut self, entity: Entity) {
+        self.active.insert(entity);
+    }
+
+    #[inline]
+    pub fn insert_leaf(&mut self, entity: Entity) {
+        self.active_leaves.insert(entity);
+    }
+
+    #[inline]
+    pub fn is_active(&self, entity: &Entity) -> bool {
+        self.active.contains(entity)
+    }
+
+    #[inline]
+    pub fn is_leaf_active(&self, entity: &Entity) -> bool {
+        self.active_leaves.contains(entity)
     }
 }
 
@@ -176,7 +202,7 @@ pub fn transition_observer(
     };
 
     // Handle initialization case where there are no current active states
-    if current_state.0.is_empty() {
+    if current_state.active_leaves.is_empty() {
         // Enter the machine root first, then all ancestors from root→target
         commands.trigger_targets(EnterState, machine_entity);
 
@@ -203,7 +229,9 @@ pub fn transition_observer(
             &child_of_query,
             &mut commands,
         );
-        current_state.0.extend(new_leaf_states);
+        current_state.active_leaves.extend(new_leaf_states);
+        // Derive full active set from leaves
+        current_state.active = compute_active_from_leaves(&current_state.active_leaves, &child_of_query);
         return;
     }
 
@@ -215,7 +243,7 @@ pub fn transition_observer(
         // 1) Exit: all active leaves under the parallel source up to (and including) the source
         let mut ordered_exits: Vec<Entity> = Vec::new();
         let mut seen: HashSet<Entity> = HashSet::new();
-        for &leaf in current_state.0.iter() {
+        for &leaf in current_state.active_leaves.iter() {
             // Consider only leaves that are descendants of the parallel source
             let is_descendant = leaf == source_state
                 || child_of_query.iter_ancestors(leaf).any(|a| a == source_state);
@@ -257,7 +285,7 @@ pub fn transition_observer(
     } else {
         // Non-parallel: original single-leaf logic
         // Find the leaf that’s under the source
-        let Some(exiting_leaf_state) = current_state.0.iter().find(|leaf| {
+        let Some(exiting_leaf_state) = current_state.active_leaves.iter().find(|leaf| {
             **leaf == source_state
                 || child_of_query
                     .iter_ancestors(**leaf)
@@ -296,7 +324,7 @@ pub fn transition_observer(
             let states_to_save = match history {
                 History::Shallow => {
                     // For shallow history, only save direct children that are currently active
-                    current_state.0.iter()
+                    current_state.active_leaves.iter()
                         .filter(|&&state| {
                             if let Ok(parent) = child_of_query.get(state).map(|child_of| child_of.0) {
                                 parent == *entity
@@ -309,7 +337,7 @@ pub fn transition_observer(
                 }
                 History::Deep => {
                     // For deep history, save all descendant states that are currently active
-                    current_state.0.iter()
+                    current_state.active_leaves.iter()
                         .filter(|&&state| {
                             state == *entity || child_of_query
                                 .iter_ancestors(state)
@@ -335,7 +363,7 @@ pub fn transition_observer(
     // For parallel parents we potentially exited multiple leaves; remove any leaves we exited.
     for exited in states_to_exit_vec.iter() {
         // Only remove if it was a leaf previously
-        current_state.0.remove(exited);
+        current_state.active_leaves.remove(exited);
     }
 
     // Transition actions phase (between exits and entries)
@@ -357,7 +385,9 @@ pub fn transition_observer(
         &child_of_query,
         &mut commands,
     );
-    current_state.0.extend(new_leaf_states);
+    current_state.active_leaves.extend(new_leaf_states);
+    // Derive full active set from leaves
+    current_state.active = compute_active_from_leaves(&current_state.active_leaves, &child_of_query);
 }
 
 fn get_path_to_root(start_entity: Entity, child_of_query: &Query<&StateChildOf>) -> Vec<Entity> {
@@ -459,6 +489,20 @@ pub fn get_all_leaf_states(
         }
     }
     leaves
+}
+
+fn compute_active_from_leaves(
+    leaves: &HashSet<Entity>,
+    child_of_query: &Query<&StateChildOf>,
+) -> HashSet<Entity> {
+    let mut active: HashSet<Entity> = HashSet::new();
+    for &leaf in leaves.iter() {
+        active.insert(leaf);
+        for ancestor in child_of_query.iter_ancestors(leaf) {
+            active.insert(ancestor);
+        }
+    }
+    active
 }
 
 /// Triggers the InitializeMachine event when AbilityMachine component is added.
