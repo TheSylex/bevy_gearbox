@@ -1,6 +1,6 @@
+#![feature(associated_type_defaults)]
+
 use bevy::{platform::collections::HashSet, prelude::*, reflect::Reflect};
-use bevy::ecs::component::Mutable;
-use bevy::ecs::{component::StorageType};
 
 use crate::{active::{Active, Inactive}, guards::Guards, history::{History, HistoryState}};
 
@@ -19,33 +19,41 @@ impl Plugin for GearboxPlugin {
         app.add_observer(transition_observer)
             .add_observer(active::add_active)
             .add_observer(active::add_inactive)
-            .add_observer(initialize_state_machine);
+            .add_observer(initialize_state_machine)
+            .add_observer(reset_state_machine)
+            .add_observer(transitions::transition_always)
+            .add_observer(transitions::start_after_on_enter)
+            .add_observer(transitions::cancel_after_on_exit)
+            .add_observer(transitions::reset_on_transition_actions);
 
-        app.register_type::<Parallel>();
-        app.register_type::<InitialState>();
-        app.register_type::<StateMachine>();
-        app.register_type::<History>();
-        app.register_type::<HistoryState>();
-        app.register_type::<StateChildren>();
-        app.register_type::<StateChildOf>();
-        app.register_type::<Guards>();
-        app.register_type::<Active>();
-        app.register_type::<Inactive>();
-        app.register_type::<EnterState>();
-        app.register_type::<ExitState>();
-        app.register_type::<TransitionActions>();
-        app.register_type::<OnAdd>();
-        app.register_type::<transitions::Source>();
-        app.register_type::<transitions::Transitions>();
-        app.register_type::<transitions::Target>();
-        app.register_type::<transitions::AlwaysEdge>();
-        app.register_type::<transitions::TransitionKind>();
+        app.register_type::<Parallel>()
+            .register_type::<InitialState>()
+            .register_type::<StateMachine>()
+            .register_type::<History>()
+            .register_type::<HistoryState>()
+            .register_type::<StateChildren>()
+            .register_type::<StateChildOf>()
+            .register_type::<Guards>()
+            .register_type::<Active>()
+            .register_type::<Inactive>()
+            .register_type::<EnterState>()
+            .register_type::<ExitState>()
+            .register_type::<ResetMachine>()
+            .register_type::<TransitionActions>()
+            .register_type::<transitions::After>()
+            .register_type::<transitions::Source>()
+            .register_type::<transitions::Transitions>()
+            .register_type::<transitions::Target>()
+            .register_type::<transitions::AlwaysEdge>()
+            .register_type::<transitions::TransitionKind>()
+            .register_type::<transitions::ResetEdge>()
+            .register_type::<transitions::ResetScope>()
+            .register_type::<state_component::Reset>();
 
-        app.add_observer(transitions::transition_always);
-        app.add_observer(transitions::start_after_on_enter);
-        app.add_observer(transitions::cancel_after_on_exit);
-        app.add_systems(Update, transitions::check_always_on_guards_changed);
-        app.add_systems(Update, transitions::tick_after_system);
+        app.add_systems(Update, (
+            transitions::check_always_on_guards_changed,
+            transitions::tick_after_system,
+        ));
     }
 }
 
@@ -97,11 +105,7 @@ pub struct Transition {
 }
 
 #[derive(Event, Reflect)]
-pub struct TransitionActions {
-    pub source: Entity,
-    pub edge: Entity,
-    pub target: Entity,
-}
+pub struct TransitionActions;
 
 /// A marker component for a state that has parallel (orthogonal) regions.
 /// When a state with this component is entered, the machine will simultaneously enter
@@ -113,25 +117,15 @@ pub struct Parallel;
 /// A component that specifies the initial substate for a state.
 /// When a state is entered, the machine will recursively drill down through `InitialState`
 /// components to find the leaf state(s) to activate.
-#[derive(Reflect)]
+#[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct InitialState(pub Entity);
-
-impl Component for InitialState {
-    const STORAGE_TYPE: StorageType = StorageType::Table;
-
-    type Mutability = Mutable;
-    
-    fn map_entities<E: EntityMapper>(this: &mut Self, entity_mapper: &mut E) {
-        this.0 = entity_mapper.get_mapped(this.0);
-    }
-}
+pub struct InitialState(#[entities] pub Entity);
 
 /// A component on the state machine's root entity that tracks the current active
 /// leaf states. In a machine with parallel regions, this can contain multiple entities.
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
-pub struct StateMachine(pub HashSet<Entity>);
+pub struct StateMachine(#[entities] pub HashSet<Entity>);
 
 impl StateMachine {
     pub fn new() -> Self {
@@ -146,6 +140,10 @@ pub struct EnterState;
 /// An event that is triggered on a state entity when it is being exited.
 #[derive(Event, Reflect, Default)]
 pub struct ExitState;
+
+/// Event to reset a state machine: clear Active flags under the root and reinitialize
+#[derive(Event, Reflect, Default)]
+pub struct ResetMachine;
 
 /// The core system that observes `Transition` events and orchestrates the state change.
 /// It calculates the exit and entry paths, sends `ExitState` and `EnterState` events
@@ -341,14 +339,7 @@ pub fn transition_observer(
     }
 
     // Transition actions phase (between exits and entries)
-    commands.trigger_targets(
-        TransitionActions {
-            source: source_state,
-            edge: trigger.event().edge,
-            target: new_super_state,
-        }, 
-        machine_entity,
-    );
+    commands.trigger_targets(TransitionActions, trigger.event().edge);
 
     // Enter from parent to child
     for entity in states_to_enter_vec.iter().rev() {
@@ -483,4 +474,20 @@ fn initialize_state_machine(
 
     // Treat the root as its own edge: transition to the root, then drill down via InitialState/Always.
     commands.trigger_targets(Transition { source: target, edge: target }, target);
+}
+
+/// Resets a machine by clearing Active components under the root and re-inserting StateMachine
+fn reset_state_machine(
+    trigger: Trigger<ResetMachine>,
+    mut commands: Commands,
+    children_query: Query<&StateChildren>,
+) {
+    let root = trigger.target();
+
+    for child in children_query.iter_descendants(root) {
+        commands.entity(child).remove::<Active>().insert(Inactive);
+        commands.trigger_targets(prelude::Reset, child);
+    }
+
+    commands.entity(root).remove::<StateMachine>().insert(StateMachine::new());
 }

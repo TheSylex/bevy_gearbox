@@ -4,7 +4,8 @@ use std::time::Duration;
 use bevy::prelude::*;
 use std::collections::HashSet;
 
-use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachine, ExitState, StateChildren, Parallel};
+use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachine, ExitState, Parallel};
+use crate::state_component::Reset;
 
 /// Outbound transitions from a source state. Order defines priority (first match wins).
 #[derive(Component, Default, Debug, PartialEq, Eq, Reflect)]
@@ -48,7 +49,7 @@ pub struct Target(#[entities] pub Entity);
 
 /// Whether the transition should be treated as External (default) or Internal.
 #[derive(Component, Reflect, Default, Clone, Copy)]
-#[reflect(Component)]
+#[reflect(Component, Default)]
 pub enum TransitionKind { 
     #[default]
     External,
@@ -61,7 +62,8 @@ pub enum TransitionKind {
 pub struct AlwaysEdge;
 
 /// Delayed transition configuration: fire after `duration` has elapsed while the source is active.
-#[derive(Component)]
+#[derive(Component, Reflect, Default)]
+#[reflect(Component, Default)]
 pub struct After {
     pub duration: Duration,
 }
@@ -111,13 +113,23 @@ impl<E: Event> DeferEvent<E> {
     }
 }
 
+/// Marker to request reset of subtree(s) during TransitionActions phase
+#[derive(Component, Reflect, Default)]
+#[reflect(Component, Default)]
+pub struct ResetEdge(pub ResetScope);
+
+#[derive(Reflect, Default, Clone, Copy)]
+pub enum ResetScope { #[default] Source, Target, Both }
+
 /// On EnterState(source), evaluate AlwaysEdge transitions listed in `Transitions(source)` in order.
+/// Respects After components - transitions with After will be handled by the timer system instead.
 pub fn transition_always(
     trigger: Trigger<EnterState>,
     transitions_query: Query<&Transitions>,
     always_query: Query<(), With<AlwaysEdge>>,
     edge_target_query: Query<&Target>,
     guards_query: Query<&Guards>,
+    after_query: Query<&After>,
     child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
 ){
@@ -127,6 +139,9 @@ pub fn transition_always(
     // Evaluate in order; fire the first allowed transition
     for edge in transitions.into_iter().copied() {
         if always_query.get(edge).is_err() { continue; }
+
+        // Skip transitions with After component - let the timer system handle them
+        if after_query.get(edge).is_ok() { continue; }
 
         // Resolve target from edge
         if edge_target_query.get(edge).is_err() { continue; }
@@ -382,6 +397,44 @@ pub fn cancel_after_on_exit(
     }
 }
 
+/// During TransitionActions, if an edge has ResetEdge, emit ResetSubtree for its scope
+pub(crate) fn reset_on_transition_actions(
+    trigger: Trigger<crate::TransitionActions>,
+    reset_edge_q: Query<&ResetEdge>,
+    edge_q: Query<(&Source, &Target)>,
+    children_q: Query<&crate::StateChildren>,
+    mut commands: Commands,
+) {
+    let edge = trigger.target();
+    let Ok(reset) = reset_edge_q.get(edge) else { return; };
+    
+    let Ok((Source(source), Target(target))) = edge_q.get(edge) else { return; };
+
+    let mut entities = vec![];
+
+    match reset.0 {
+        ResetScope::Source => {
+            entities.push(*source);
+            entities.extend(children_q.iter_descendants(*source));
+        }
+        ResetScope::Target => {
+            entities.push(*target);
+            entities.extend(children_q.iter_descendants(*target));
+        }
+        ResetScope::Both => {
+            entities.push(*source);
+            entities.push(*target);
+            entities.extend(children_q.iter_descendants(*source));
+            entities.extend(children_q.iter_descendants(*target));
+        }
+    }
+
+    for entity in entities {
+        println!("Resetting entity: {:?}", entity);
+        commands.trigger_targets(Reset, entity);
+    }
+}
+
 /// Tick After timers and fire the first due transition per active source, respecting Transitions order.
 pub fn tick_after_system(
     time: Res<Time>,
@@ -438,5 +491,3 @@ pub fn replay_deferred_event<E: Event + Clone>(
         }
     }
 }
-
-

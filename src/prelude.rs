@@ -3,7 +3,10 @@ pub use crate::{
     // Events
     EnterState,
     ExitState,
+    ResetMachine,
     Transition,
+    TransitionActions,
+    state_component::Reset,
     // Components
     active::Active,
     active::Inactive,

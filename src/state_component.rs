@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{ecs::component::Mutable, prelude::*};
 
 use crate::{EnterState, ExitState, StateChildOf};
 
@@ -15,7 +15,7 @@ pub struct StateInactiveComponent<T: Component + Clone>(pub T);
 
 /// A generic system that adds a component `T` to the state machine's root entity
 /// when a state with `StateComponent<T>` is entered.
-pub fn state_component_enter<T: Component + Clone>(
+pub fn state_component_enter<T: Component<Mutability = Mutable> + Clone>(
     trigger: Trigger<EnterState>,
     query: Query<&StateComponent<T>>,
     child_of_query: Query<&StateChildOf>,
@@ -97,21 +97,25 @@ pub fn state_inactive_component_exit<T: Component + Clone>(
 pub trait StateComponentAppExt {
     /// Registers both enter and exit observers for `StateComponent<T>`.
     /// This is a convenience method to avoid having to register both observers manually.
-    fn add_state_component<T: Component + Clone>(&mut self) -> &mut Self;
+    fn add_state_component<T: Component<Mutability = Mutable> + Clone>(&mut self) -> &mut Self;
     
     /// Registers both enter and exit observers for `StateInactiveComponent<T>`.
     /// This is a convenience method to avoid having to register both observers manually.
-    fn add_state_inactive_component<T: Component + Clone>(&mut self) -> &mut Self;
+    fn add_state_inactive_component<T: Component<Mutability = Mutable> + Clone>(&mut self) -> &mut Self;
 }
 
 impl StateComponentAppExt for App {
-    fn add_state_component<T: Component + Clone>(&mut self) -> &mut Self {
+    fn add_state_component<T: Component<Mutability = Mutable> + Clone>(&mut self) -> &mut Self {
         self.add_observer(state_component_enter::<T>)
             .add_observer(state_component_exit::<T>)
     }
     
-    fn add_state_inactive_component<T: Component + Clone>(&mut self) -> &mut Self {
+    fn add_state_inactive_component<T: Component<Mutability = Mutable> + Clone>(&mut self) -> &mut Self {
         self.add_observer(state_inactive_component_enter::<T>)
             .add_observer(state_inactive_component_exit::<T>)
     }
 }
+
+/// Event to reset a subtree rooted at the target entity.
+#[derive(Event, Reflect, Default)]
+pub struct Reset;
