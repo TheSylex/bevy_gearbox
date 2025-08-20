@@ -323,20 +323,25 @@ pub fn transition_observer(
         if let Ok(history) = history_query.get(*entity) {
             let states_to_save = match history {
                 History::Shallow => {
-                    // For shallow history, only save direct children that are currently active
-                    current_state.active_leaves.iter()
-                        .filter(|&&state| {
-                            if let Ok(parent) = child_of_query.get(state).map(|child_of| child_of.0) {
-                                parent == *entity
-                            } else {
-                                false
+                    // For shallow history, save the immediate child of `entity` on the path
+                    // to each active leaf descendant (handles both normal and parallel parents).
+                    let mut saved: HashSet<Entity> = HashSet::new();
+                    for &leaf in current_state.active_leaves.iter() {
+                        // Track the previous node while walking ancestors; when we hit `entity`,
+                        // `prev` is the immediate child under `entity`.
+                        let mut prev = leaf;
+                        for ancestor in child_of_query.iter_ancestors(leaf) {
+                            if ancestor == *entity {
+                                saved.insert(prev);
+                                break;
                             }
-                        })
-                        .copied()
-                        .collect()
+                            prev = ancestor;
+                        }
+                    }
+                    saved
                 }
                 History::Deep => {
-                    // For deep history, save all descendant states that are currently active
+                    // For deep history, save all active descendant leaves
                     current_state.active_leaves.iter()
                         .filter(|&&state| {
                             state == *entity || child_of_query
@@ -413,56 +418,44 @@ pub fn get_all_leaf_states(
     while let Some(entity) = stack.pop() {
         let mut found_next = false;
 
-        // If it's a parallel state, explore all children regions.
-        if parallel_query.get(entity).is_ok() {
-            if let Ok(children) = children_query.get(entity) {
-                found_next = true;
-                for &child in children {
-                    // Enter the state for the region itself
-                    commands.trigger_targets(EnterState, child);
-                    stack.push(child);
-                }
-            }
-        }
-        // Check for history first, then fall back to initial state
-        else if let (Ok(history), Ok(history_state)) = (history_query.get(entity), history_state_query.get(entity)) {
+        // 1) History takes precedence (works for both parallel and non-parallel parents)
+        if let (Ok(history), Ok(history_state)) = (history_query.get(entity), history_state_query.get(entity)) {
             found_next = true;
-            
             match history {
                 History::Shallow => {
-                    // For shallow history, restore direct children and let them drill down normally
                     for &saved_state in &history_state.0 {
-                        // Enter the saved direct child so its entry actions run
                         commands.trigger_targets(EnterState, saved_state);
-                        // Then continue drilling via InitialState/History under it
                         stack.push(saved_state);
                     }
                 }
                 History::Deep => {
-                    // For deep history, restore the exact hierarchy that was saved
                     for &saved_state in &history_state.0 {
-                        // Compute the path from the current restoring state (entity)
-                        // down to the saved leaf and enter along that path in parent→child order.
                         let mut path_to_substate = vec![saved_state];
                         path_to_substate.extend(
                             child_of_query
                                 .iter_ancestors(saved_state)
                                 .take_while(|&ancestor| ancestor != entity),
                         );
-
                         for e in path_to_substate.iter().rev() {
                             commands.trigger_targets(EnterState, *e);
                         }
-
-                        // Mark the saved leaf as restored
                         leaves.insert(saved_state);
                     }
-                    // Skip normal processing for deep history
                     continue;
                 }
             }
         }
-        // If it has a single initial state, explore that.
+        // 2) If it's a parallel state (without history), explore all children regions.
+        else if parallel_query.get(entity).is_ok() {
+            if let Ok(children) = children_query.get(entity) {
+                found_next = true;
+                for &child in children {
+                    commands.trigger_targets(EnterState, child);
+                    stack.push(child);
+                }
+            }
+        }
+        // 3) If it has a single initial state, explore that.
         else if let Ok(initial_state) = initial_state_query.get(entity) {
             found_next = true;
 
