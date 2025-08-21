@@ -1,6 +1,6 @@
 [package]
 name = "bevy_gearbox"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "State machine system for the bevy game engine"
 license = "MIT OR Apache-2.0"
