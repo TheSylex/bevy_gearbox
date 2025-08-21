@@ -700,7 +700,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_gearbox"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "bevy",
  "bevy-inspector-egui",
