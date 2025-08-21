@@ -29,7 +29,7 @@ bevy_gearbox provides a state machine runtime modeled after XState’s core idea
   - ECS-managed guard failure sets with per-edge checks.
   - Composition support planned via a small `Logic` tree.
 - Actions envelope:
-  - `TransitionActions { source, edge, target }` emitted between exits and entries.
+  - `TransitionActions` emitted between exits and entries.
   - Author “assign/raise/send/cancel” patterns as normal systems.
 
 ## Quick start
@@ -38,7 +38,7 @@ bevy_gearbox provides a state machine runtime modeled after XState’s core idea
 
 ```rust
 app.add_plugins(GearboxPlugin)
-   .add_observer(transition_listener::<YourEvent>);
+   .add_observer(edge_event_listener::<YourEvent>);
 ```
 
 2) Send events to the machine root; the listener routes to active leaves internally
@@ -56,8 +56,8 @@ commands.trigger_targets(YourEvent, machine_root);
 
 | Crate               | Version | Bevy |
 |---------------------|---------|------|
-| bevy_gearbox        | 0.3.1   | 0.16 |
-| bevy_gearbox_editor | 0.3.1   | 0.16 |
+| bevy_gearbox        | 0.3.2   | 0.16 |
+| bevy_gearbox_editor | 0.3.2   | 0.16 |
 
 ## License
 
