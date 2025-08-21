@@ -18,7 +18,7 @@ pub(crate) fn add_active(
     commands.queue(move |world: &mut World| {
         let root = world.query::<&StateChildOf>().query(world).root_ancestor(target);
         let Some(state_machine) = world.entity(root).get::<StateMachine>() else { return; };
-        if state_machine.active_leaves.contains(&target) {
+        if state_machine.active.contains(&target) {
             world.entity_mut(target).remove::<Inactive>().insert(Active);
         }
     });
@@ -32,7 +32,7 @@ pub(crate) fn add_inactive(
     commands.queue(move |world: &mut World| {
         let root = world.query::<&StateChildOf>().query(world).root_ancestor(target);
         let Some(state_machine) = world.entity(root).get::<StateMachine>() else { return; };
-        if !state_machine.active_leaves.contains(&target) {
+        if !state_machine.active.contains(&target) {
             world.entity_mut(target).remove::<Active>().insert(Inactive);
         }
     });

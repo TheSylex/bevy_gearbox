@@ -50,7 +50,7 @@ pub struct Target(#[entities] pub Entity);
 /// Whether the transition should be treated as External (default) or Internal.
 #[derive(Component, Reflect, Default, Clone, Copy)]
 #[reflect(Component, Default)]
-pub enum TransitionKind { 
+pub enum EdgeKind { 
     #[default]
     External,
     Internal,
@@ -59,6 +59,7 @@ pub enum TransitionKind {
 /// Marker for a transition that should fire on entering the source state (no event).
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
+#[require(EdgeKind)]
 pub struct AlwaysEdge;
 
 /// Delayed transition configuration: fire after `duration` has elapsed while the source is active.
@@ -68,18 +69,24 @@ pub struct After {
     pub duration: Duration,
 }
 
+impl After {
+    #[inline]
+    pub fn new(duration: Duration) -> Self { Self { duration } }
+}
+
 #[derive(Component)]
 pub struct EdgeTimer(pub Timer);
 
 /// Attach this to a transition entity to react to a specific event `E`.
 #[derive(Reflect, Component)]
 #[reflect(Component)]
-pub struct TransitionListener<E: Event> {
+#[require(EdgeKind)]
+pub struct EventEdge<E: Event> {
     #[reflect(ignore)]
     _marker: PhantomData<E>,
 }
 
-impl<E: Event> Default for TransitionListener<E> {
+impl<E: Event> Default for EventEdge<E> {
     fn default() -> Self {
         Self { _marker: PhantomData }
     }
@@ -123,7 +130,7 @@ pub enum ResetScope { #[default] Source, Target, Both }
 
 /// On EnterState(source), evaluate AlwaysEdge transitions listed in `Transitions(source)` in order.
 /// Respects After components - transitions with After will be handled by the timer system instead.
-pub fn transition_always(
+pub fn always_edge_listener(
     trigger: Trigger<EnterState>,
     transitions_query: Query<&Transitions>,
     always_query: Query<(), With<AlwaysEdge>>,
@@ -180,12 +187,11 @@ fn find_parallel_region_root(
     state
 }
 
-/// Generic listener: on event `E` at a source state, scan its `Transitions` for a matching
-/// transition entity with `TransitionListener<E>`, in priority order.
-pub fn transition_listener<E: Event + Clone>(
+/// On event `E`, scan `Transitions` for a matching edge with `EventEdge<E>`, in priority order.
+pub fn edge_event_listener<E: Event + Clone>(
     trigger: Trigger<E>,
     transitions_query: Query<&Transitions>,
-    listener_query: Query<&TransitionListener<E>>, 
+    listener_query: Query<&EventEdge<E>>, 
     edge_target_query: Query<&Target>,
     guards_query: Query<&Guards>,
     child_of_query: Query<&StateChildOf>,
@@ -258,7 +264,7 @@ fn try_fire_first_matching_edge<E: Event + Clone>(
     source: Entity,
     event: &E,
     transitions_query: &Query<&Transitions>,
-    listener_query: &Query<&TransitionListener<E>>, 
+    listener_query: &Query<&EventEdge<E>>, 
     edge_target_query: &Query<&Target>,
     guards_query: &Query<&Guards>,
     child_of_query: &Query<&StateChildOf>,
@@ -298,7 +304,7 @@ fn try_fire_first_matching_edge_on_branch<E: Event + Clone>(
     event: &E,
     machine_root: Entity,
     transitions_query: &Query<&Transitions>,
-    listener_query: &Query<&TransitionListener<E>>, 
+    listener_query: &Query<&EventEdge<E>>, 
     edge_target_query: &Query<&Target>,
     guards_query: &Query<&Guards>,
     child_of_query: &Query<&StateChildOf>,

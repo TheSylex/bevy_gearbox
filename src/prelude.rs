@@ -35,8 +35,8 @@ pub use crate::{
     transitions::Source,
     transitions::Target,
     transitions::AlwaysEdge,
-    transitions::TransitionKind,
-    transitions::TransitionListener,
-    transitions::transition_listener,
+    transitions::EdgeKind,
+    transitions::EventEdge,
+    transitions::edge_event_listener,
     transitions::replay_deferred_event,
 };

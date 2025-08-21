@@ -19,10 +19,10 @@ bevy_gearbox provides a state machine runtime modeled after XState’s core idea
 - Activation semantics:
   - Root remains active for the machine lifetime.
   - Entering a state enters all ancestors down to the leaf.
-  - Self-transitions are external by default; use `TransitionKind::Internal` to suppress re-entry.
+  - Self-transitions are external by default; use `EdgeKind::Internal` to suppress re-entry.
 - Transition entities:
-  - `Source(Entity)`, `Target(Entity)`, `TransitionKind`.
-  - Event-driven transitions via `TransitionListener<E>` components on edges.
+  - `Source(Entity)`, `Target(Entity)`, `EdgeKind`.
+  - Event-driven transitions via `EventEdge<E>` components on edges.
   - Eventless transitions: `AlwaysEdge`.
   - Delayed transitions: `After { duration }` with cancellation on exit.
 - Guards:
@@ -49,7 +49,7 @@ commands.trigger_targets(YourEvent, machine_root);
 
 3) Author via code or scenes
 
-- Spawn states and edges with `Source`, `Target`, `TransitionKind`, `TransitionListener<E>`, `AlwaysEdge`, `After`.
+- Spawn states and edges with `Source`, `Target`, `EdgeKind`, `EventEdge<E>`, `AlwaysEdge`, `After`.
 - Or load a scene authored with [`bevy_gearbox_editor`](https://github.com/DEMIURGE-studio/bevy_gearbox_editor).
 
 ## Compatibility

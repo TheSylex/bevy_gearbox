@@ -15,8 +15,8 @@ fn main() {
         .add_plugins(WorldInspectorPlugin::new())
         .add_systems(Startup, setup)
         .add_systems(Update, input_system)
-        .add_observer(transition_listener::<RequestOpen>)
-        .add_observer(transition_listener::<RequestClose>)
+        .add_observer(edge_event_listener::<RequestOpen>)
+        .add_observer(edge_event_listener::<RequestClose>)
         .add_observer(print_enter_state_messages)
         .add_observer(print_exit_state_messages)
         .add_observer(replay_deferred_event::<RequestClose>)
@@ -118,8 +118,8 @@ fn setup(mut commands: Commands) {
         world.entity_mut(closed_to_opening).insert((
             Name::new("Closed -> Opening (RequestOpen)"),
             Target(opening),
-            TransitionListener::<RequestOpen>::default(),
-            TransitionKind::External,
+            EventEdge::<RequestOpen>::default(),
+            EdgeKind::External,
             Source(closed),
         ));
 
@@ -133,8 +133,8 @@ fn setup(mut commands: Commands) {
         world.entity_mut(open_to_closing).insert((
             Name::new("Open -> Closing (RequestClose)"),
             Target(closing),
-            TransitionListener::<RequestClose>::default(),
-            TransitionKind::External,
+            EventEdge::<RequestClose>::default(),
+            EdgeKind::External,
             Source(open),
         ));
 
@@ -148,8 +148,8 @@ fn setup(mut commands: Commands) {
         world.entity_mut(closing_to_opening).insert((
             Name::new("Closing -> Opening (RequestOpen)"),
             Target(opening),
-            TransitionListener::<RequestOpen>::default(),
-            TransitionKind::External,
+            EventEdge::<RequestOpen>::default(),
+            EdgeKind::External,
             Source(closing),
         ));
     });

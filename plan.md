@@ -119,7 +119,7 @@ Deliverables
 ## File touchpoints (initial)
 
 - `src/lib.rs`: transition ordering envelope, optional per-frame internal event queue.
-- `src/transitions.rs`: transition entity components (`Source`, `Target`, `TransitionKind`, `After`, `Always`, `TransitionListener<...>` on transitions), systems to scan `Transitions(Vec<Entity>)` on events/enter/exit.
+- `src/transitions.rs`: transition entity components (`Source`, `Target`, `EdgeKind`, `After`, `Always`, `EventEdge<...>` on transitions), systems to scan `Transitions(Vec<Entity>)` on events/enter/exit.
 - `src/history.rs`: minor ordering clarifications.
 - `src/guards.rs`: add `Logic` tree type and evaluator; integrate with transition checks.
 - `src/prelude.rs`: re-export new APIs.

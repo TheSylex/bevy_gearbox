@@ -21,7 +21,7 @@ impl Plugin for GearboxPlugin {
             .add_observer(active::add_inactive)
             .add_observer(initialize_state_machine)
             .add_observer(reset_state_machine)
-            .add_observer(transitions::transition_always)
+            .add_observer(transitions::always_edge_listener)
             .add_observer(transitions::start_after_on_enter)
             .add_observer(transitions::cancel_after_on_exit)
             .add_observer(transitions::reset_on_transition_actions);
@@ -45,7 +45,7 @@ impl Plugin for GearboxPlugin {
             .register_type::<transitions::Transitions>()
             .register_type::<transitions::Target>()
             .register_type::<transitions::AlwaysEdge>()
-            .register_type::<transitions::TransitionKind>()
+            .register_type::<transitions::EdgeKind>()
             .register_type::<transitions::ResetEdge>()
             .register_type::<transitions::ResetScope>()
             .register_type::<state_component::Reset>();
@@ -185,7 +185,7 @@ pub fn transition_observer(
     mut history_state_query: Query<&mut HistoryState>,
     child_of_query: Query<&StateChildOf>,
     edge_target_query: Query<&transitions::Target>,
-    kind_query: Query<&transitions::TransitionKind>,
+    kind_query: Query<&transitions::EdgeKind>,
     mut commands: Commands,
 ) {
     let machine_entity = trigger.target();
@@ -272,7 +272,7 @@ pub fn transition_observer(
 
         let lca_entity = if lca_depth > 0 { Some(exit_path_from_source[exit_path_from_source.len() - lca_depth]) } else { None };
 
-        let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::TransitionKind::Internal));
+        let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::EdgeKind::Internal));
         if !is_internal {
             // If source is the LCA, default external re-enters the source
             if lca_entity == Some(source_state) {
@@ -304,7 +304,7 @@ pub fn transition_observer(
             .take_while(|(a, b)| a == b)
             .count();
         let lca_entity = if lca_depth > 0 { Some(exit_path[exit_path.len() - lca_depth]) } else { None };
-        let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::TransitionKind::Internal));
+        let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::EdgeKind::Internal));
         if !is_internal {
             if new_super_state == exiting_leaf_state {
                 lca_depth = lca_depth.saturating_sub(1);

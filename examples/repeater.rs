@@ -15,8 +15,8 @@ fn main() {
         .add_plugins(WorldInspectorPlugin::new())
         .add_systems(Startup, setup)
         .add_systems(Update, (input_system, repeater_system))
-        .add_observer(transition_listener::<CastAbility>)
-        .add_observer(transition_listener::<OnComplete>)
+        .add_observer(edge_event_listener::<CastAbility>)
+        .add_observer(edge_event_listener::<OnComplete>)
         .add_observer(print_enter_state_messages)
         .add_observer(reset_repeater_on_cast)
         .run();
@@ -78,16 +78,16 @@ fn setup(mut commands: Commands) {
         world.entity_mut(ready_cast_ability).insert((
             Name::new("Ready -> Repeating (CastAbility)"),
             Target(repeating),
-            TransitionListener::<CastAbility>::default(),
-            TransitionKind::External,
+            EventEdge::<CastAbility>::default(),
+            EdgeKind::External,
             Source(ready),
         ));
 
         world.entity_mut(repeating_on_complete).insert((
             Name::new("Repeating -> Ready (OnComplete)"),
             Target(ready),
-            TransitionListener::<OnComplete>::default(),
-            TransitionKind::External,
+            EventEdge::<OnComplete>::default(),
+            EdgeKind::External,
             Source(repeating),
         ));
     });
@@ -127,7 +127,7 @@ fn repeater_system(
 
             if repeater.remaining == 0 {
                 // The repeater is done. Fire the `OnComplete` event on the `Repeating`
-                // state entity. The `TransitionListener` on that entity will handle
+                // state entity. The `EventEdge` on that entity will handle
                 // transitioning back to the `Ready` state.
                 commands.trigger_targets(OnComplete, root_entity);
             }
