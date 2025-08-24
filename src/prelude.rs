@@ -3,7 +3,7 @@ pub use crate::{
     // Events
     EnterState,
     ExitState,
-    ResetMachine,
+    ResetRegion,
     Transition,
     TransitionActions,
     state_component::Reset,
@@ -37,6 +37,8 @@ pub use crate::{
     transitions::AlwaysEdge,
     transitions::EdgeKind,
     transitions::EventEdge,
-    transitions::edge_event_listener,
+    transitions::TransitionEventAppExt,
     transitions::replay_deferred_event,
+    transitions::TransitionEvent,
+    transitions::NoEvent,
 };

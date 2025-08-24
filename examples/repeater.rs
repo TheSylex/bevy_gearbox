@@ -15,8 +15,8 @@ fn main() {
         .add_plugins(WorldInspectorPlugin::new())
         .add_systems(Startup, setup)
         .add_systems(Update, (input_system, repeater_system))
-        .add_observer(edge_event_listener::<CastAbility>)
-        .add_observer(edge_event_listener::<OnComplete>)
+        .add_event_edge::<CastAbility>()
+        .add_event_edge::<OnComplete>()
         .add_observer(print_enter_state_messages)
         .add_observer(reset_repeater_on_cast)
         .run();

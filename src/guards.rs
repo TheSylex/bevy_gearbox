@@ -17,6 +17,12 @@ impl Guards {
         }
     }
 
+    pub fn init(guards: impl IntoIterator<Item = impl Guard>) -> Self {
+        Self {
+            guards: guards.into_iter().map(|guard| guard.name()).collect(),
+        }
+    }
+
     pub fn has_guard(&self, guard: impl Guard) -> bool {
         self.guards.contains(&guard.name())
     }

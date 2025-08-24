@@ -16,11 +16,11 @@ pub struct GearboxPlugin;
 
 impl Plugin for GearboxPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(transition_observer)
-            .add_observer(active::add_active)
+        app.add_observer(active::add_active)
             .add_observer(active::add_inactive)
+            .add_observer(transition_observer::<()>)
             .add_observer(initialize_state_machine)
-            .add_observer(reset_state_machine)
+            .add_observer(reset_state_region)
             .add_observer(transitions::always_edge_listener)
             .add_observer(transitions::start_after_on_enter)
             .add_observer(transitions::cancel_after_on_exit)
@@ -38,7 +38,7 @@ impl Plugin for GearboxPlugin {
             .register_type::<Inactive>()
             .register_type::<EnterState>()
             .register_type::<ExitState>()
-            .register_type::<ResetMachine>()
+            .register_type::<ResetRegion>()
             .register_type::<TransitionActions>()
             .register_type::<transitions::After>()
             .register_type::<transitions::Source>()
@@ -46,6 +46,7 @@ impl Plugin for GearboxPlugin {
             .register_type::<transitions::Target>()
             .register_type::<transitions::AlwaysEdge>()
             .register_type::<transitions::EdgeKind>()
+            .register_type::<transitions::NoEvent>()
             .register_type::<transitions::ResetEdge>()
             .register_type::<transitions::ResetScope>()
             .register_type::<state_component::Reset>();
@@ -96,12 +97,14 @@ impl FromWorld for StateChildOf {
 /// Prefer using `edge` to reference a transition entity. The legacy `connection`
 /// field is retained for initialization and backward compatibility.
 #[derive(Event)]
-pub struct Transition {
+pub struct Transition<T = ()> where T: Clone + Send + Sync + 'static {
     /// The state that triggered this transition. This is used to determine the scope
     /// of the transition, especially in parallel state machines.
     pub source: Entity,
     /// The transition edge entity that defines the target and kind.
     pub edge: Entity,
+    /// Optional typed payload that can be used by the transition observer
+    pub payload: T,
 }
 
 #[derive(Event, Reflect)]
@@ -169,14 +172,14 @@ pub struct ExitState;
 
 /// Event to reset a state machine: clear Active flags under the root and reinitialize
 #[derive(Event, Reflect, Default)]
-pub struct ResetMachine;
+pub struct ResetRegion;
 
 /// The core system that observes `Transition` events and orchestrates the state change.
 /// It calculates the exit and entry paths, sends `ExitState` and `EnterState` events
 /// to the appropriate states, and updates the machine's `CurrentState`.
 /// Also handles history state saving and restoration.
-pub fn transition_observer(
-    trigger: Trigger<Transition>,
+fn transition_observer<T: transitions::PhasePayload>(
+    trigger: Trigger<Transition<T>>,
     mut machine_query: Query<&mut StateMachine>,
     parallel_query: Query<&Parallel>,
     children_query: Query<&StateChildren>,
@@ -318,6 +321,9 @@ pub fn transition_observer(
     };
 
     // Exit from child to parent, saving history if needed
+    // Invoke typed Exit payload once at the start (root + source)
+    let root_entity = child_of_query.root_ancestor(source_state);
+    trigger.event().payload.on_exit(&mut commands, root_entity, source_state);
     for entity in states_to_exit_vec.iter() {
         // Save history if this state has history behavior
         if let Ok(history) = history_query.get(*entity) {
@@ -373,6 +379,9 @@ pub fn transition_observer(
 
     // Transition actions phase (between exits and entries)
     commands.trigger_targets(TransitionActions, trigger.event().edge);
+    trigger.event().payload.on_effect(&mut commands, root_entity, trigger.event().edge);
+    // Invoke typed Effect payload if present
+    // Note: we avoid trait bounds here; user code can downcast payload if desired via helper
 
     // Enter from parent to child
     for entity in states_to_enter_vec.iter().rev() {
@@ -391,6 +400,8 @@ pub fn transition_observer(
         &mut commands,
     );
     current_state.active_leaves.extend(new_leaf_states);
+    // Invoke typed Entry payload (root + target super state)
+    trigger.event().payload.on_entry(&mut commands, root_entity, new_super_state);
     // Derive full active set from leaves
     current_state.active = compute_active_from_leaves(&current_state.active_leaves, &child_of_query);
 }
@@ -501,21 +512,16 @@ fn compute_active_from_leaves(
 /// Triggers the InitializeMachine event when AbilityMachine component is added.
 fn initialize_state_machine(
     trigger: Trigger<OnAdd, StateMachine>,
-    initial_state_query: Query<&InitialState>,
     mut commands: Commands,
 ) {
     let target = trigger.target();
-    let Ok(_initial_state) = initial_state_query.get(target) else {
-        return;
-    };
-
-    // Treat the root as its own edge: transition to the root, then drill down via InitialState/Always.
-    commands.trigger_targets(Transition { source: target, edge: target }, target);
+    // Always attempt to initialize: root-as-leaf, parallel, or parent with InitialState
+    commands.trigger_targets(Transition { source: target, edge: target, payload: () }, target);
 }
 
 /// Resets a machine by clearing Active components under the root and re-inserting StateMachine
-fn reset_state_machine(
-    trigger: Trigger<ResetMachine>,
+fn reset_state_region(
+    trigger: Trigger<ResetRegion>,
     mut commands: Commands,
     children_query: Query<&StateChildren>,
 ) {

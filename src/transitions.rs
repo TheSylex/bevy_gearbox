@@ -4,6 +4,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 use std::collections::HashSet;
 
+use crate::TransitionActions;
 use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachine, ExitState, Parallel};
 use crate::state_component::Reset;
 
@@ -76,6 +77,142 @@ impl After {
 
 #[derive(Component)]
 pub struct EdgeTimer(pub Timer);
+
+/// Marker event to represent absence of a payload
+#[derive(Event, Reflect, Clone, Default)]
+#[reflect(Default)]
+pub struct NoEvent;
+
+/// Trait implemented by events that can provide phase-specific payloads
+/// for the transition lifecycle. All associated types default to NoEvent,
+/// and all getters default to None.
+pub trait TransitionEvent: Event + Clone {
+    type ExitEvent: Event + Clone = NoEvent;
+    type EffectEvent: Event + Clone = NoEvent;
+    type EntryEvent: Event + Clone = NoEvent;
+
+    fn to_exit_event(&self) -> Option<Self::ExitEvent> { None }
+    fn to_effect_event(&self) -> Option<Self::EffectEvent> { None }
+    fn to_entry_event(&self) -> Option<Self::EntryEvent> { None }
+}
+
+// Note: No blanket impl for TransitionEvent to avoid conflicting impls in downstream crates.
+
+/// A typed phase payload holder built from a TransitionEvent
+#[derive(Clone, Default)]
+pub struct PhaseEvents<Exit: Event + Clone = NoEvent, Effect: Event + Clone = NoEvent, Entry: Event + Clone = NoEvent> {
+    pub exit: Option<Exit>,
+    pub effect: Option<Effect>,
+    pub entry: Option<Entry>,
+}
+
+/// Phase callbacks the transition observer will invoke at microsteps
+pub trait PhasePayload: Clone + Send + Sync + 'static {
+    fn on_exit(&self, _commands: &mut Commands, _root: Entity, _source: Entity) {}
+    fn on_effect(&self, _commands: &mut Commands, _root: Entity, _edge: Entity) {}
+    fn on_entry(&self, _commands: &mut Commands, _root: Entity, _target_super: Entity) {}
+}
+
+impl PhasePayload for () {}
+
+impl<Exit: Event + Clone, Effect: Event + Clone, Entry: Event + Clone> PhasePayload for PhaseEvents<Exit, Effect, Entry> {
+    fn on_exit(&self, commands: &mut Commands, root: Entity, _source: Entity) {
+        if let Some(ev) = self.exit.clone() { commands.trigger_targets(ev, root); }
+    }
+    fn on_effect(&self, commands: &mut Commands, root: Entity, _edge: Entity) {
+        if let Some(ev) = self.effect.clone() { commands.trigger_targets(ev, root); }
+    }
+    fn on_entry(&self, commands: &mut Commands, root: Entity, _target_super: Entity) {
+        if let Some(ev) = self.entry.clone() { commands.trigger_targets(ev, root); }
+    }
+}
+
+/// App extension to register both the event listener and the typed transition observer
+pub trait TransitionEventAppExt {
+    fn add_transition_event<E: TransitionEvent + Clone + 'static>(&mut self) -> &mut Self;
+    fn add_event_edge<E: Event + Clone + 'static>(&mut self) -> &mut Self;
+}
+
+impl TransitionEventAppExt for App {
+    fn add_transition_event<E: TransitionEvent + Clone + 'static>(&mut self) -> &mut Self {
+        self.add_observer(edge_event_listener::<E>)
+            .add_observer(crate::transition_observer::<PhaseEvents<E::ExitEvent, E::EffectEvent, E::EntryEvent>>)
+    }
+    fn add_event_edge<E: Event + Clone + 'static>(&mut self) -> &mut Self {
+        self.add_observer(simple_edge_event_listener::<E>)
+            .add_observer(crate::transition_observer::<()>)
+    }
+}
+
+/// Simpler listener for unit events without TransitionEvent semantics
+fn simple_edge_event_listener<E: Event + Clone>(
+    trigger: Trigger<E>,
+    transitions_query: Query<&Transitions>,
+    listener_query: Query<&EventEdge<E>>, 
+    edge_target_query: Query<&Target>,
+    guards_query: Query<&Guards>,
+    child_of_query: Query<&StateChildOf>,
+    current_state_query: Query<&StateMachine>,
+    mut defer_query: Query<&mut DeferEvent<E>>,
+    active_query: Query<(), With<Active>>,
+    parallel_query: Query<&Parallel>,
+    mut commands: Commands,
+){
+    let event = trigger.event();
+    if let Ok(current) = current_state_query.get(trigger.target()) {
+        let machine_root = trigger.target();
+        let mut visited: HashSet<Entity> = HashSet::new();
+        let mut fired_regions: HashSet<Entity> = HashSet::new();
+        for &leaf in current.active_leaves.iter() {
+            let region_root = find_parallel_region_root(leaf, &child_of_query, &parallel_query);
+            if fired_regions.contains(&region_root) { continue; }
+            if try_fire_first_matching_edge_simple(
+                leaf, event, machine_root,
+                &transitions_query, &listener_query, &edge_target_query, &guards_query,
+                &child_of_query, &mut defer_query, &active_query, &mut visited, &mut commands,
+            ) { fired_regions.insert(region_root); }
+        }
+        return;
+    }
+    let source = trigger.target();
+    let _ = try_fire_first_matching_edge_simple(
+        source, event, source,
+        &transitions_query, &listener_query, &edge_target_query, &guards_query,
+        &child_of_query, &mut defer_query, &active_query, &mut Default::default(), &mut commands,
+    );
+}
+
+fn try_fire_first_matching_edge_simple<E: Event + Clone>(
+    source: Entity,
+    event: &E,
+    _machine_root: Entity,
+    transitions_query: &Query<&Transitions>,
+    listener_query: &Query<&EventEdge<E>>, 
+    edge_target_query: &Query<&Target>,
+    guards_query: &Query<&Guards>,
+    child_of_query: &Query<&StateChildOf>,
+    defer_query: &mut Query<&mut DeferEvent<E>>,
+    active_query: &Query<(), With<Active>>,
+    _visited: &mut HashSet<Entity>,
+    commands: &mut Commands,
+) -> bool {
+    if let Ok(mut defer_event) = defer_query.get_mut(source) {
+        if active_query.get(source).is_ok() {
+            defer_event.defer_event(event.clone());
+            return false;
+        }
+    }
+    let Ok(transitions) = transitions_query.get(source) else { return false; };
+    for edge in transitions.into_iter().copied() {
+        if listener_query.get(edge).is_err() { continue; }
+        if let Ok(guards) = guards_query.get(edge) { if !guards.check() { continue; } }
+        if edge_target_query.get(edge).is_err() { continue; }
+        let root = child_of_query.root_ancestor(source);
+        commands.trigger_targets(Transition { source, edge, payload: () }, root);
+        return true;
+    }
+    false
+}
 
 /// Attach this to a transition entity to react to a specific event `E`.
 #[derive(Reflect, Component)]
@@ -162,7 +299,7 @@ pub fn always_edge_listener(
 
         let root = child_of_query.root_ancestor(source);
 
-        commands.trigger_targets(Transition { source, edge }, root);
+        commands.trigger_targets(Transition { source, edge, payload: () }, root);
         break;
     }
 }
@@ -188,7 +325,7 @@ fn find_parallel_region_root(
 }
 
 /// On event `E`, scan `Transitions` for a matching edge with `EventEdge<E>`, in priority order.
-pub fn edge_event_listener<E: Event + Clone>(
+fn edge_event_listener<E: TransitionEvent + Clone>(
     trigger: Trigger<E>,
     transitions_query: Query<&Transitions>,
     listener_query: Query<&EventEdge<E>>, 
@@ -260,7 +397,7 @@ pub fn edge_event_listener<E: Event + Clone>(
     );
 }
 
-fn try_fire_first_matching_edge<E: Event + Clone>(
+fn try_fire_first_matching_edge<E: TransitionEvent + Clone>(
     source: Entity,
     event: &E,
     transitions_query: &Query<&Transitions>,
@@ -292,14 +429,20 @@ fn try_fire_first_matching_edge<E: Event + Clone>(
 
         if edge_target_query.get(edge).is_err() { continue; }
 
+        let payload = PhaseEvents {
+            exit: event.to_exit_event(),
+            effect: event.to_effect_event(),
+            entry: event.to_entry_event(),
+        };
+
         let root = child_of_query.root_ancestor(source);
-        commands.trigger_targets(Transition { source, edge }, root);
+        commands.trigger_targets(Transition { source, edge, payload }, root);
         return true;
     }
     false
 }
 
-fn try_fire_first_matching_edge_on_branch<E: Event + Clone>(
+fn try_fire_first_matching_edge_on_branch<E: Event + Clone + TransitionEvent>(
     start: Entity,
     event: &E,
     machine_root: Entity,
@@ -368,7 +511,7 @@ pub fn check_always_on_guards_changed(
         if !edge_target { continue; }
         let root = child_of_query.root_ancestor(source);
 
-        commands.trigger_targets(Transition { source, edge }, root);
+        commands.trigger_targets(Transition { source, edge, payload: () }, root);
     }
 }
 
@@ -471,9 +614,9 @@ pub fn tick_after_system(
             // Cancel timer to avoid multiple firings if state persists
             commands.entity(edge).remove::<EdgeTimer>();
 
-            // Emit transition to the machine root
+            // Emit transition to the machine root with empty payload
             let root = child_of_query.root_ancestor(source);
-            commands.trigger_targets(Transition { source, edge }, root);
+            commands.trigger_targets(Transition { source, edge, payload: () }, root);
             break; // only one delayed transition per source per frame
         }
     }

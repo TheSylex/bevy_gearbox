@@ -46,7 +46,7 @@ fn transitions_priority_first_match_wins() {
     let mut app = test_app();
 
     // Register event listener observer for TestEvt
-    app.add_observer(edge_event_listener::<TestEvt>);
+    app.add_event_edge::<TestEvt>();
 
     // Build hierarchy: root has children S, T1, T2. Initial is S
     let root = app.world_mut().spawn_empty().id();
@@ -115,7 +115,7 @@ fn lifecycle_exit_then_transition_actions_then_enter_ordering() {
     app.add_observer(log_enter);
     app.add_observer(log_exit);
     app.add_observer(log_actions);
-    app.add_observer(edge_event_listener::<TestEvt>);
+    app.add_event_edge::<TestEvt>();
 
     // root children: A, C; A child: B (initial)
     let root = app.world_mut().spawn((Name::new("root"),)).id();
@@ -157,7 +157,7 @@ struct EvtP1;
 #[test]
 fn events_root_propagation_one_per_parallel_region() {
     let mut app = test_app();
-    app.add_observer(edge_event_listener::<EvtP1>);
+    app.add_event_edge::<EvtP1>();
 
     // Build root -> P(parallel)
     let root = app.world_mut().spawn_empty().id();
@@ -212,8 +212,8 @@ struct EvtGoBack;
 fn history_shallow_saves_immediate_children_under_parallel_and_restores() {
     let mut app = test_app();
 
-    app.add_observer(edge_event_listener::<EvtGoOut>);
-    app.add_observer(edge_event_listener::<EvtGoBack>);
+    app.add_event_edge::<EvtGoOut>();
+    app.add_event_edge::<EvtGoBack>();
 
     // root -> P(parallel, shallow history) -> regions R1,R2 with leaves A,B
     let root = app.world_mut().spawn_empty().id();
@@ -264,7 +264,7 @@ fn defer_defers_when_active_and_replays_on_exit_without_consuming_region() {
     app.init_resource::<OrderLog>();
 
     // Add systems needed for defer: listener and replay
-    app.add_observer(edge_event_listener::<EvtDefer>);
+    app.add_event_edge::<EvtDefer>();
     app.add_observer(replay_deferred_event::<EvtDefer>);
 
     // root children: S (with DeferEvent<EvtDefer>), T
@@ -321,7 +321,7 @@ fn state_component_adds_on_enter_removes_on_exit() {
     // Transition to sibling T to exit S
     #[derive(Event, Clone, Default)]
     struct Go;
-    app.add_observer(edge_event_listener::<Go>);
+    app.add_event_edge::<Go>();
     let t = app.world_mut().spawn_empty().id();
     app.world_mut().entity_mut(t).insert(StateChildOf(root));
     app.world_mut().spawn((Source(s), Target(t), EventEdge::<Go>::default()));
@@ -335,7 +335,7 @@ fn state_component_adds_on_enter_removes_on_exit() {
 #[test]
 fn transitions_external_vs_internal_lca_reentry() {
     let mut app = test_app();
-    app.add_observer(edge_event_listener::<TestEvt>);
+    app.add_event_edge::<TestEvt>();
     app.insert_resource(OrderLog::default());
     app.add_observer(log_enter);
     app.add_observer(log_exit);
@@ -370,7 +370,7 @@ fn transitions_external_vs_internal_lca_reentry() {
 #[test]
 fn transitions_ignored_when_missing_target() {
     let mut app = test_app();
-    app.add_observer(edge_event_listener::<TestEvt>);
+    app.add_event_edge::<TestEvt>();
 
     let root = app.world_mut().spawn_empty().id();
     let s = app.world_mut().spawn_empty().id();
@@ -470,8 +470,8 @@ fn history_deep_restores_exact_leaves() {
 
     // Outside Z and edges to go out/in
     #[derive(Event, Clone, Default)] struct Out; #[derive(Event, Clone, Default)] struct Back;
-    app.add_observer(edge_event_listener::<Out>);
-    app.add_observer(edge_event_listener::<Back>);
+    app.add_event_edge::<Out>();
+    app.add_event_edge::<Back>();
     let z = app.world_mut().spawn_empty().id();
     app.world_mut().entity_mut(z).insert(StateChildOf(root));
     app.world_mut().spawn((Source(p), Target(z), EventEdge::<Out>::default()));
@@ -500,7 +500,7 @@ fn reset_machine_reinitializes() {
     app.update();
 
     // Trigger reset
-    app.world_mut().commands().trigger_targets(ResetMachine, root);
+    app.world_mut().commands().trigger_targets(ResetRegion, root);
     app.update();
 
     let sm = app.world().get::<StateMachine>(root).unwrap();
@@ -518,7 +518,7 @@ fn mark_reset(trigger: Trigger<Reset>, mut commands: Commands) {
 fn reset_edge_triggers_scope_target() {
     let mut app = test_app();
     app.add_observer(mark_reset);
-    app.add_observer(edge_event_listener::<TestEvt>);
+    app.add_event_edge::<TestEvt>();
 
     let root = app.world_mut().spawn_empty().id();
     let s = app.world_mut().spawn_empty().id();
@@ -558,7 +558,7 @@ fn state_inactive_component_removes_on_enter_restores_on_exit() {
 
     // Transition S->T
     #[derive(Event, Clone, Default)] struct Go;
-    app.add_observer(edge_event_listener::<Go>);
+    app.add_event_edge::<Go>();
     app.world_mut().spawn((Source(s), Target(t), EventEdge::<Go>::default()));
     app.world_mut().commands().trigger_targets(Go, root);
     app.update();
