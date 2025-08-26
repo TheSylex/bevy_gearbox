@@ -4,7 +4,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 use std::collections::HashSet;
 
-use crate::TransitionActions;
+use crate::StateChildren;
 use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachine, ExitState, Parallel};
 use crate::state_component::Reset;
 
@@ -78,6 +78,12 @@ impl After {
 #[derive(Component)]
 pub struct EdgeTimer(pub Timer);
 
+/// Pending event stored on an edge awaiting its After timer
+#[derive(Component)]
+pub struct PendingEvent<E: Event + Clone> {
+    pub event: E,
+}
+
 /// Marker event to represent absence of a payload
 #[derive(Event, Reflect, Clone, Default)]
 #[reflect(Default)]
@@ -108,22 +114,31 @@ pub struct PhaseEvents<Exit: Event + Clone = NoEvent, Effect: Event + Clone = No
 
 /// Phase callbacks the transition observer will invoke at microsteps
 pub trait PhasePayload: Clone + Send + Sync + 'static {
-    fn on_exit(&self, _commands: &mut Commands, _root: Entity, _source: Entity) {}
-    fn on_effect(&self, _commands: &mut Commands, _root: Entity, _edge: Entity) {}
-    fn on_entry(&self, _commands: &mut Commands, _root: Entity, _target_super: Entity) {}
+    fn on_exit(&self, _commands: &mut Commands, _source: Entity, _children: &Query<&StateChildren>) {}
+    fn on_effect(&self, _commands: &mut Commands, _edge: Entity, _children: &Query<&StateChildren>) {}
+    fn on_entry(&self, _commands: &mut Commands, _target: Entity, _children: &Query<&StateChildren>) {}
 }
 
 impl PhasePayload for () {}
 
 impl<Exit: Event + Clone, Effect: Event + Clone, Entry: Event + Clone> PhasePayload for PhaseEvents<Exit, Effect, Entry> {
-    fn on_exit(&self, commands: &mut Commands, root: Entity, _source: Entity) {
-        if let Some(ev) = self.exit.clone() { commands.trigger_targets(ev, root); }
+    fn on_exit(&self, commands: &mut Commands, source: Entity, children: &Query<&StateChildren>) {
+        if let Some(ev) = self.exit.clone() { commands.trigger_targets(ev, source); }
+        for child in children.iter_descendants(source) {
+            if let Some(ev) = self.exit.clone() { commands.trigger_targets(ev, child); }
+        }
     }
-    fn on_effect(&self, commands: &mut Commands, root: Entity, _edge: Entity) {
-        if let Some(ev) = self.effect.clone() { commands.trigger_targets(ev, root); }
+    fn on_effect(&self, commands: &mut Commands, edge: Entity, children: &Query<&StateChildren>) {
+        if let Some(ev) = self.effect.clone() { commands.trigger_targets(ev, edge); }
+        for child in children.iter_descendants(edge) {
+            if let Some(ev) = self.effect.clone() { commands.trigger_targets(ev, child); }
+        }
     }
-    fn on_entry(&self, commands: &mut Commands, root: Entity, _target_super: Entity) {
-        if let Some(ev) = self.entry.clone() { commands.trigger_targets(ev, root); }
+    fn on_entry(&self, commands: &mut Commands, target: Entity, children: &Query<&StateChildren>) {
+        if let Some(ev) = self.entry.clone() { commands.trigger_targets(ev, target); }
+        for child in children.iter_descendants(target) {
+            if let Some(ev) = self.entry.clone() { commands.trigger_targets(ev, child); }
+        }
     }
 }
 
@@ -137,10 +152,14 @@ impl TransitionEventAppExt for App {
     fn add_transition_event<E: TransitionEvent + Clone + 'static>(&mut self) -> &mut Self {
         self.add_observer(edge_event_listener::<E>)
             .add_observer(crate::transition_observer::<PhaseEvents<E::ExitEvent, E::EffectEvent, E::EntryEvent>>)
+            .add_systems(Update, tick_after_transition_event_timers::<E>)
+            .add_observer(cancel_pending_event_on_exit::<E>)
     }
     fn add_event_edge<E: Event + Clone + 'static>(&mut self) -> &mut Self {
         self.add_observer(simple_edge_event_listener::<E>)
             .add_observer(crate::transition_observer::<()>)
+            .add_systems(Update, tick_after_simple_event_timers::<E>)
+            .add_observer(cancel_pending_event_on_exit::<E>)
     }
 }
 
@@ -156,6 +175,8 @@ fn simple_edge_event_listener<E: Event + Clone>(
     mut defer_query: Query<&mut DeferEvent<E>>,
     active_query: Query<(), With<Active>>,
     parallel_query: Query<&Parallel>,
+    after_query: Query<&After>,
+    mut timer_query: Query<&mut EdgeTimer>,
     mut commands: Commands,
 ){
     let event = trigger.event();
@@ -169,7 +190,7 @@ fn simple_edge_event_listener<E: Event + Clone>(
             if try_fire_first_matching_edge_simple(
                 leaf, event, machine_root,
                 &transitions_query, &listener_query, &edge_target_query, &guards_query,
-                &child_of_query, &mut defer_query, &active_query, &mut visited, &mut commands,
+                &child_of_query, &mut defer_query, &active_query, &after_query, &mut timer_query, &mut visited, &mut commands,
             ) { fired_regions.insert(region_root); }
         }
         return;
@@ -178,7 +199,7 @@ fn simple_edge_event_listener<E: Event + Clone>(
     let _ = try_fire_first_matching_edge_simple(
         source, event, source,
         &transitions_query, &listener_query, &edge_target_query, &guards_query,
-        &child_of_query, &mut defer_query, &active_query, &mut Default::default(), &mut commands,
+        &child_of_query, &mut defer_query, &active_query, &after_query, &mut timer_query, &mut Default::default(), &mut commands,
     );
 }
 
@@ -193,6 +214,8 @@ fn try_fire_first_matching_edge_simple<E: Event + Clone>(
     child_of_query: &Query<&StateChildOf>,
     defer_query: &mut Query<&mut DeferEvent<E>>,
     active_query: &Query<(), With<Active>>,
+    after_query: &Query<&After>,
+    timer_query: &mut Query<&mut EdgeTimer>,
     _visited: &mut HashSet<Entity>,
     commands: &mut Commands,
 ) -> bool {
@@ -207,6 +230,17 @@ fn try_fire_first_matching_edge_simple<E: Event + Clone>(
         if listener_query.get(edge).is_err() { continue; }
         if let Ok(guards) = guards_query.get(edge) { if !guards.check() { continue; } }
         if edge_target_query.get(edge).is_err() { continue; }
+        // If this event edge has After, schedule a delayed fire
+        if let Ok(after) = after_query.get(edge) {
+            if let Ok(mut timer) = timer_query.get_mut(edge) {
+                timer.0.set_duration(after.duration);
+                timer.0.reset();
+            } else {
+                commands.entity(edge).insert(EdgeTimer(Timer::new(after.duration, TimerMode::Once)));
+            }
+            commands.entity(edge).insert(PendingEvent::<E> { event: event.clone() });
+            return true;
+        }
         let root = child_of_query.root_ancestor(source);
         commands.trigger_targets(Transition { source, edge, payload: () }, root);
         return true;
@@ -336,6 +370,8 @@ fn edge_event_listener<E: TransitionEvent + Clone>(
     mut defer_query: Query<&mut DeferEvent<E>>,
     active_query: Query<(), With<Active>>,
     parallel_query: Query<&Parallel>,
+    after_query: Query<&After>,
+    mut timer_query: Query<&mut EdgeTimer>,
     mut commands: Commands,
 ){
     let event = trigger.event();
@@ -370,6 +406,8 @@ fn edge_event_listener<E: TransitionEvent + Clone>(
                 &child_of_query,
                 &mut defer_query,
                 &active_query,
+                &after_query,
+                &mut timer_query,
                 &mut visited,
                 &mut commands,
             ) {
@@ -393,6 +431,8 @@ fn edge_event_listener<E: TransitionEvent + Clone>(
         &child_of_query,
         &mut defer_query,
         &active_query,
+        &after_query,
+        &mut timer_query,
         &mut commands,
     );
 }
@@ -407,6 +447,8 @@ fn try_fire_first_matching_edge<E: TransitionEvent + Clone>(
     child_of_query: &Query<&StateChildOf>,
     defer_query: &mut Query<&mut DeferEvent<E>>,
     active_query: &Query<(), With<Active>>,
+    after_query: &Query<&After>,
+    timer_query: &mut Query<&mut EdgeTimer>,
     commands: &mut Commands,
 ) -> bool {
     // Check if this state should defer this event type
@@ -428,6 +470,18 @@ fn try_fire_first_matching_edge<E: TransitionEvent + Clone>(
         }
 
         if edge_target_query.get(edge).is_err() { continue; }
+
+        // If edge is delayed, schedule timer and store pending event
+        if let Ok(after) = after_query.get(edge) {
+            if let Ok(mut timer) = timer_query.get_mut(edge) {
+                timer.0.set_duration(after.duration);
+                timer.0.reset();
+            } else {
+                commands.entity(edge).insert(EdgeTimer(Timer::new(after.duration, TimerMode::Once)));
+            }
+            commands.entity(edge).insert(PendingEvent::<E> { event: event.clone() });
+            return true;
+        }
 
         let payload = PhaseEvents {
             exit: event.to_exit_event(),
@@ -453,6 +507,8 @@ fn try_fire_first_matching_edge_on_branch<E: Event + Clone + TransitionEvent>(
     child_of_query: &Query<&StateChildOf>,
     defer_query: &mut Query<&mut DeferEvent<E>>,
     active_query: &Query<(), With<Active>>,
+    after_query: &Query<&After>,
+    timer_query: &mut Query<&mut EdgeTimer>,
     visited: &mut HashSet<Entity>,
     commands: &mut Commands,
 ) -> bool {
@@ -475,6 +531,8 @@ fn try_fire_first_matching_edge_on_branch<E: Event + Clone + TransitionEvent>(
             child_of_query,
             defer_query,
             active_query,
+            after_query,
+            timer_query,
             commands,
         ) {
             return true;
@@ -580,7 +638,6 @@ pub(crate) fn reset_on_transition_actions(
     }
 
     for entity in entities {
-        println!("Resetting entity: {:?}", entity);
         commands.trigger_targets(Reset, entity);
     }
 }
@@ -638,6 +695,98 @@ pub fn replay_deferred_event<E: Event + Clone>(
             
             // Replay all deferred event to the machine root
             commands.trigger_targets(deferred, root_entity);
+        }
+    }
+}
+
+/// Tick timers for TransitionEvent-based event edges with After; fire when due
+pub fn tick_after_transition_event_timers<E: TransitionEvent + Clone + 'static>(
+    time: Res<Time>,
+    mut timer_query: Query<(Entity, &mut EdgeTimer, &PendingEvent<E>), With<EventEdge<E>>>,
+    after_query: Query<&After>,
+    guards_query: Query<&Guards>,
+    edge_target_query: Query<&Target>,
+    edge_source_query: Query<&Source>,
+    child_of_query: Query<&StateChildOf>,
+    active_query: Query<(), With<Active>>,
+    mut commands: Commands,
+){
+    for (edge, mut timer, pending) in timer_query.iter_mut() {
+        // Only consider edges that still have After
+        if after_query.get(edge).is_err() { continue; }
+
+        // If the source is no longer active, cancel the pending event
+        let Ok(Source(source)) = edge_source_query.get(edge) else { continue; };
+        if active_query.get(*source).is_err() {
+            commands.entity(edge).remove::<EdgeTimer>().remove::<PendingEvent<E>>();
+            continue;
+        }
+
+        timer.0.tick(time.delta());
+        if !timer.0.just_finished() { continue; }
+
+        // Guards and target must still be valid
+        if let Ok(guards) = guards_query.get(edge) { if !guards.check() { continue; } }
+        if edge_target_query.get(edge).is_err() { continue; }
+
+        let payload = PhaseEvents {
+            exit: pending.event.to_exit_event(),
+            effect: pending.event.to_effect_event(),
+            entry: pending.event.to_entry_event(),
+        };
+
+        // Cleanup timer/pending and fire the transition to machine root
+        commands.entity(edge).remove::<EdgeTimer>().remove::<PendingEvent<E>>();
+        let root = child_of_query.root_ancestor(*source);
+        commands.trigger_targets(Transition { source: *source, edge, payload }, root);
+    }
+}
+
+/// Tick timers for simple Event-based event edges with After; fire when due
+pub fn tick_after_simple_event_timers<E: Event + Clone + 'static>(
+    time: Res<Time>,
+    mut timer_query: Query<(Entity, &mut EdgeTimer, &PendingEvent<E>), With<EventEdge<E>>>,
+    after_query: Query<&After>,
+    guards_query: Query<&Guards>,
+    edge_target_query: Query<&Target>,
+    edge_source_query: Query<&Source>,
+    child_of_query: Query<&StateChildOf>,
+    active_query: Query<(), With<Active>>,
+    mut commands: Commands,
+){
+    for (edge, mut timer, _pending) in timer_query.iter_mut() {
+        if after_query.get(edge).is_err() { continue; }
+
+        let Ok(Source(source)) = edge_source_query.get(edge) else { continue; };
+        if active_query.get(*source).is_err() {
+            commands.entity(edge).remove::<EdgeTimer>().remove::<PendingEvent<E>>();
+            continue;
+        }
+
+        timer.0.tick(time.delta());
+        if !timer.0.just_finished() { continue; }
+
+        if let Ok(guards) = guards_query.get(edge) { if !guards.check() { continue; } }
+        if edge_target_query.get(edge).is_err() { continue; }
+
+        commands.entity(edge).remove::<EdgeTimer>().remove::<PendingEvent<E>>();
+        let root = child_of_query.root_ancestor(*source);
+        commands.trigger_targets(Transition { source: *source, edge, payload: () }, root);
+    }
+}
+
+/// Cancel a pending delayed event for a source when it exits
+pub fn cancel_pending_event_on_exit<E: Event + Clone + 'static>(
+    trigger: Trigger<ExitState>,
+    transitions_query: Query<&Transitions>,
+    pending_query: Query<&PendingEvent<E>>,
+    mut commands: Commands,
+){
+    let source = trigger.target();
+    let Ok(transitions) = transitions_query.get(source) else { return; };
+    for &edge in transitions.into_iter() {
+        if pending_query.get(edge).is_ok() {
+            commands.entity(edge).remove::<PendingEvent<E>>().remove::<EdgeTimer>();
         }
     }
 }
