@@ -11,6 +11,10 @@ pub mod prelude;
 pub mod state_component;
 pub mod transitions;
 
+// Re-export the derive macro and key types for convenience
+pub use bevy_gearbox_macros::SimpleTransition;
+pub use transitions::{TransitionEvent, NoEvent};
+
 /// The main plugin for `bevy_gearbox`. Registers events and adds the core systems.
 pub struct GearboxPlugin;
 

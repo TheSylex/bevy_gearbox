@@ -41,4 +41,6 @@ pub use crate::{
     transitions::replay_deferred_event,
     transitions::TransitionEvent,
     transitions::NoEvent,
+    // Derive macros
+    SimpleTransition,
 };

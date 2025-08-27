@@ -704,6 +704,16 @@ version = "0.3.3"
 dependencies = [
  "bevy",
  "bevy-inspector-egui",
+ "bevy_gearbox_macros",
+]
+
+[[package]]
+name = "bevy_gearbox_macros"
+version = "0.3.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

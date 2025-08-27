@@ -15,8 +15,8 @@ fn main() {
         .add_plugins(WorldInspectorPlugin::new())
         .add_systems(Startup, setup)
         .add_systems(Update, (input_system, repeater_system))
-        .add_event_edge::<CastAbility>()
-        .add_event_edge::<OnComplete>()
+        .add_transition_event::<CastAbility>()
+        .add_transition_event::<OnComplete>()
         .add_observer(print_enter_state_messages)
         .add_observer(reset_repeater_on_cast)
         .run();
@@ -36,11 +36,11 @@ struct Repeater {
 }
 
 // --- Event to trigger state transitions ---
-#[derive(Event, Clone)]
+#[derive(SimpleTransition, Event, Clone)]
 struct CastAbility;
 
 /// An event fired by a state when its internal logic has completed.
-#[derive(Event, Clone)]
+#[derive(SimpleTransition, Event, Clone)]
 struct OnComplete;
 
 /// Creates the ability state machine hierarchy.

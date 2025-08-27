@@ -15,8 +15,8 @@ fn main() {
         .add_plugins(WorldInspectorPlugin::new())
         .add_systems(Startup, setup)
         .add_systems(Update, input_system)
-        .add_event_edge::<RequestOpen>()
-        .add_event_edge::<RequestClose>()
+        .add_transition_event::<RequestOpen>()
+        .add_transition_event::<RequestClose>()
         .add_observer(print_enter_state_messages)
         .add_observer(print_exit_state_messages)
         .add_observer(replay_deferred_event::<RequestClose>)
@@ -54,11 +54,11 @@ struct DoorClosing;
 // --- Events ---
 
 /// Event triggered when requesting the door to open (W key)
-#[derive(Event, Clone)]
+#[derive(SimpleTransition, Event, Clone)]
 struct RequestOpen;
 
 /// Event triggered when requesting the door to close (E key)
-#[derive(Event, Clone)]
+#[derive(SimpleTransition, Event, Clone)]
 struct RequestClose;
 
 /// Creates the door state machine hierarchy.
