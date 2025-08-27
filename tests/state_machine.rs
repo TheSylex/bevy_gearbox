@@ -668,3 +668,156 @@ fn state_inactive_component_removes_on_enter_restores_on_exit() {
     // On exit S, Bar is restored
     assert_eq!(app.world().get::<Bar>(root).cloned(), Some(Bar("present")));
 }
+
+#[test]
+fn after_timer_respects_guards_added_during_delay() {
+    let mut app = test_app();
+
+    let root = app.world_mut().spawn_empty().id();
+    let s = app.world_mut().spawn_empty().id();
+    let t = app.world_mut().spawn_empty().id();
+    app.world_mut().entity_mut(s).insert(StateChildOf(root));
+    app.world_mut().entity_mut(t).insert(StateChildOf(root));
+
+    // After edge with 50ms delay
+    let edge = app.world_mut().spawn((
+        Source(s),
+        Target(t),
+        AlwaysEdge,
+        After { duration: Duration::from_millis(50) },
+    )).id();
+
+    app.world_mut().entity_mut(root).insert((InitialState(s), StateMachine::new()));
+    app.update(); // This starts the timer
+
+    // Add a guard to block the transition while timer is running
+    app.world_mut().entity_mut(edge).insert(Guards { 
+        guards: std::iter::once("block".to_string()).collect() 
+    });
+
+    // Advance time past the delay
+    std::thread::sleep(Duration::from_millis(60));
+    app.update();
+
+    // Should still be on S because guard blocked the delayed transition
+    let sm = app.world().get::<StateMachine>(root).unwrap();
+    assert!(sm.active_leaves.contains(&s), "should remain on S when guard blocks delayed transition");
+    assert!(!sm.active_leaves.contains(&t), "should not transition to T when blocked by guard");
+}
+
+#[test]
+fn after_timer_handles_missing_target_during_delay() {
+    let mut app = test_app();
+
+    let root = app.world_mut().spawn_empty().id();
+    let s = app.world_mut().spawn_empty().id();
+    let t = app.world_mut().spawn_empty().id();
+    app.world_mut().entity_mut(s).insert(StateChildOf(root));
+    app.world_mut().entity_mut(t).insert(StateChildOf(root));
+
+    // After edge with 50ms delay
+    let edge = app.world_mut().spawn((
+        Source(s),
+        Target(t),
+        AlwaysEdge,
+        After { duration: Duration::from_millis(50) },
+    )).id();
+
+    app.world_mut().entity_mut(root).insert((InitialState(s), StateMachine::new()));
+    app.update(); // This starts the timer
+
+    // Remove the target component while timer is running
+    app.world_mut().entity_mut(edge).remove::<Target>();
+
+    // Advance time past the delay
+    std::thread::sleep(Duration::from_millis(60));
+    app.update();
+
+    // Should still be on S because target is missing
+    let sm = app.world().get::<StateMachine>(root).unwrap();
+    assert!(sm.active_leaves.contains(&s), "should remain on S when target is missing");
+    assert!(!sm.active_leaves.contains(&t), "should not transition when target is missing");
+}
+
+#[derive(SimpleTransition, Event, Clone)]
+struct DelayedTestEvt;
+
+#[test]
+fn event_after_timer_respects_guards_added_during_delay() {
+    let mut app = test_app();
+    app.add_transition_event::<DelayedTestEvt>();
+
+    let root = app.world_mut().spawn_empty().id();
+    let s = app.world_mut().spawn_empty().id();
+    let t = app.world_mut().spawn_empty().id();
+    app.world_mut().entity_mut(s).insert(StateChildOf(root));
+    app.world_mut().entity_mut(t).insert(StateChildOf(root));
+
+    // Event edge with 50ms delay
+    let edge = app.world_mut().spawn((
+        Source(s),
+        Target(t),
+        EventEdge::<DelayedTestEvt>::default(),
+        After { duration: Duration::from_millis(50) },
+    )).id();
+
+    app.world_mut().entity_mut(root).insert((InitialState(s), StateMachine::new()));
+    app.update();
+
+    // Fire the event to schedule the delayed transition
+    app.world_mut().commands().trigger_targets(DelayedTestEvt, root);
+    app.update();
+
+    // Add a guard to block the transition while timer is running
+    app.world_mut().entity_mut(edge).insert(Guards { 
+        guards: std::iter::once("block".to_string()).collect() 
+    });
+
+    // Advance time past the delay
+    std::thread::sleep(Duration::from_millis(60));
+    app.update();
+
+    // Should still be on S because guard blocked the delayed event transition
+    let sm = app.world().get::<StateMachine>(root).unwrap();
+    assert!(sm.active_leaves.contains(&s), "should remain on S when guard blocks delayed event transition");
+    assert!(!sm.active_leaves.contains(&t), "should not transition to T when blocked by guard");
+}
+
+#[test]
+fn event_after_timer_handles_missing_target_during_delay() {
+    let mut app = test_app();
+    app.add_transition_event::<DelayedTestEvt>();
+
+    let root = app.world_mut().spawn_empty().id();
+    let s = app.world_mut().spawn_empty().id();
+    let t = app.world_mut().spawn_empty().id();
+    app.world_mut().entity_mut(s).insert(StateChildOf(root));
+    app.world_mut().entity_mut(t).insert(StateChildOf(root));
+
+    // Event edge with 50ms delay
+    let edge = app.world_mut().spawn((
+        Source(s),
+        Target(t),
+        EventEdge::<DelayedTestEvt>::default(),
+        After { duration: Duration::from_millis(50) },
+    )).id();
+
+    app.world_mut().entity_mut(root).insert((InitialState(s), StateMachine::new()));
+    app.update();
+
+    // Fire the event to schedule the delayed transition
+    app.world_mut().commands().trigger_targets(DelayedTestEvt, root);
+    app.update();
+
+    // Remove the target component while timer is running
+    app.world_mut().entity_mut(edge).remove::<Target>();
+
+    // Advance time past the delay
+    std::thread::sleep(Duration::from_millis(60));
+    app.update();
+
+    // Should still be on S because target is missing
+    let sm = app.world().get::<StateMachine>(root).unwrap();
+    assert!(sm.active_leaves.contains(&s), "should remain on S when target is missing");
+    assert!(!sm.active_leaves.contains(&t), "should not transition when target is missing");
+}

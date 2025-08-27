@@ -124,29 +124,32 @@ pub struct PhaseEvents<Exit: Event + Clone = NoEvent, Effect: Event + Clone = No
 
 /// Phase callbacks the transition observer will invoke at microsteps
 pub trait PhasePayload: Clone + Send + Sync + 'static {
-    fn on_exit(&self, _commands: &mut Commands, _source: Entity, _children: &Query<&StateChildren>) {}
-    fn on_effect(&self, _commands: &mut Commands, _edge: Entity, _children: &Query<&StateChildren>) {}
-    fn on_entry(&self, _commands: &mut Commands, _target: Entity, _children: &Query<&StateChildren>) {}
+    fn on_exit(&self, _commands: &mut Commands, _source: Entity, _children: &Query<&StateChildren>, _state_machine: &StateMachine) {}
+    fn on_effect(&self, _commands: &mut Commands, _edge: Entity, _children: &Query<&StateChildren>, _state_machine: &StateMachine) {}
+    fn on_entry(&self, _commands: &mut Commands, _target: Entity, _children: &Query<&StateChildren>, _state_machine: &StateMachine) {}
 }
 
 impl PhasePayload for () {}
 
 impl<Exit: Event + Clone, Effect: Event + Clone, Entry: Event + Clone> PhasePayload for PhaseEvents<Exit, Effect, Entry> {
-    fn on_exit(&self, commands: &mut Commands, source: Entity, children: &Query<&StateChildren>) {
+    fn on_exit(&self, commands: &mut Commands, source: Entity, children: &Query<&StateChildren>, state_machine: &StateMachine) {
         if let Some(ev) = self.exit.clone() { commands.trigger_targets(ev, source); }
         for child in children.iter_descendants(source) {
+            if !state_machine.is_active(&child) { continue; }
             if let Some(ev) = self.exit.clone() { commands.trigger_targets(ev, child); }
         }
     }
-    fn on_effect(&self, commands: &mut Commands, edge: Entity, children: &Query<&StateChildren>) {
+    fn on_effect(&self, commands: &mut Commands, edge: Entity, children: &Query<&StateChildren>, state_machine: &StateMachine) {
         if let Some(ev) = self.effect.clone() { commands.trigger_targets(ev, edge); }
         for child in children.iter_descendants(edge) {
+            if !state_machine.is_active(&child) { continue; }
             if let Some(ev) = self.effect.clone() { commands.trigger_targets(ev, child); }
         }
     }
-    fn on_entry(&self, commands: &mut Commands, target: Entity, children: &Query<&StateChildren>) {
+    fn on_entry(&self, commands: &mut Commands, target: Entity, children: &Query<&StateChildren>, state_machine: &StateMachine) {
         if let Some(ev) = self.entry.clone() { commands.trigger_targets(ev, target); }
         for child in children.iter_descendants(target) {
+            if !state_machine.is_active(&child) { continue; }
             if let Some(ev) = self.entry.clone() { commands.trigger_targets(ev, child); }
         }
     }
@@ -164,6 +167,19 @@ impl TransitionEventAppExt for App {
             .add_systems(Update, tick_after_event_timers::<E>)
             .add_observer(cancel_pending_event_on_exit::<E>)
     }
+}
+
+fn validate_edge_basic(
+    edge: Entity,
+    guards_query: &Query<&Guards>,
+    target_query: &Query<&Target>,
+) -> bool {
+    // Check guards if present
+    if let Ok(guards) = guards_query.get(edge) {
+        if !guards.check() { return false; }
+    }
+    // Must have valid target
+    target_query.get(edge).is_ok()
 }
 
 /// Generic edge firing logic for TransitionEvent
@@ -193,6 +209,9 @@ fn try_fire_first_matching_edge_generic<E: TransitionEvent + Clone>(
 
     for edge in transitions.into_iter().copied() {
         if listener_query.get(edge).is_err() { continue; }
+
+        // Validate edge (guards and target) - skip if invalid
+        if !validate_edge_basic(edge, guards_query, edge_target_query) { continue; }
 
         // If edge is delayed, schedule timer and store pending event
         if let Ok(after) = after_query.get(edge) {
@@ -292,6 +311,9 @@ pub fn always_edge_listener(
 
         // Skip transitions with After component - let the timer system handle them
         if after_query.get(edge).is_ok() { continue; }
+
+        // Validate edge (guards and target)
+        if !validate_edge_basic(edge, &guards_query, &edge_target_query) { continue; }
 
         // Fire transition
         let root = child_of_query.root_ancestor(source);
@@ -565,6 +587,13 @@ pub fn tick_after_system(
             timer.0.tick(time.delta());
             if !timer.0.just_finished() { continue; }
 
+            // Validate edge (guards and target) before firing
+            if !validate_edge_basic(edge, &guards_query, &edge_target_query) {
+                // Cancel invalid timer
+                commands.entity(edge).remove::<EdgeTimer>();
+                continue;
+            }
+
             // Cancel timer to avoid multiple firings if state persists
             commands.entity(edge).remove::<EdgeTimer>();
 
@@ -621,6 +650,13 @@ pub fn tick_after_event_timers<E: TransitionEvent + Clone + 'static>(
 
         timer.0.tick(time.delta());
         if !timer.0.just_finished() { continue; }
+
+        // Validate edge (guards and target) before firing
+        if !validate_edge_basic(edge, &guards_query, &edge_target_query) {
+            // Cancel invalid timer/pending
+            cleanup_edge_timer_and_pending::<E>(&mut commands, edge);
+            continue;
+        }
 
         let payload = PhaseEvents {
             exit: pending.event.to_exit_event(),

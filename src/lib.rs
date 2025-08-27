@@ -326,7 +326,7 @@ fn transition_observer<T: transitions::PhasePayload>(
 
     // Exit from child to parent, saving history if needed
     // Invoke typed Exit payload once at the start (root + source)
-    trigger.event().payload.on_exit(&mut commands, source_state, &children_query);
+    trigger.event().payload.on_exit(&mut commands, source_state, &children_query, &current_state);
     for entity in states_to_exit_vec.iter() {
         // Save history if this state has history behavior
         if let Ok(history) = history_query.get(*entity) {
@@ -382,7 +382,7 @@ fn transition_observer<T: transitions::PhasePayload>(
 
     // Transition actions phase (between exits and entries)
     commands.trigger_targets(TransitionActions, trigger.event().edge);
-    trigger.event().payload.on_effect(&mut commands, trigger.event().edge, &children_query);
+    trigger.event().payload.on_effect(&mut commands, trigger.event().edge, &children_query, &current_state);
     // Invoke typed Effect payload if present
     // Note: we avoid trait bounds here; user code can downcast payload if desired via helper
 
@@ -404,7 +404,7 @@ fn transition_observer<T: transitions::PhasePayload>(
     );
     current_state.active_leaves.extend(new_leaf_states);
     // Invoke typed Entry payload
-    trigger.event().payload.on_entry(&mut commands, new_super_state, &children_query);
+    trigger.event().payload.on_entry(&mut commands, new_super_state, &children_query, &current_state);
     // Derive full active set from leaves
     current_state.active = compute_active_from_leaves(&current_state.active_leaves, &child_of_query);
 }
