@@ -1,4 +1,5 @@
-use bevy::{prelude::*, reflect::Reflect, platform::collections::HashSet};
+use bevy::{prelude::*, reflect::Reflect};
+use bevy::platform::collections::HashSet;
 
 /// A component that enables history behavior for a state.
 /// When a state with this component is exited and later re-entered,

@@ -1,6 +1,7 @@
 #![feature(associated_type_defaults)]
 
-use bevy::{platform::collections::HashSet, prelude::*, reflect::Reflect};
+use bevy::{prelude::*, reflect::Reflect};
+use bevy::platform::collections::HashSet;
 
 use crate::{active::{Active, Inactive}, guards::Guards, history::{History, HistoryState}};
 
@@ -324,7 +325,6 @@ fn transition_observer<T: transitions::PhasePayload>(
         (states_to_exit, states_to_enter)
     };
 
-    // Exit from child to parent, saving history if needed
     // Invoke typed Exit payload once at the start (root + source)
     trigger.event().payload.on_exit(&mut commands, source_state, &children_query, &current_state);
     for entity in states_to_exit_vec.iter() {

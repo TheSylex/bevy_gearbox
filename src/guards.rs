@@ -1,4 +1,5 @@
-use bevy::{platform::collections::HashSet, prelude::*, reflect::Reflect};
+use bevy::{prelude::*, reflect::Reflect};
+use bevy::platform::collections::HashSet;
 
 /// A component that holds a set of conditions that must be met for a transition to occur.
 #[derive(Component, Reflect, Default)]

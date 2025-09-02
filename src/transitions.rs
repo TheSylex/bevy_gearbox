@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use bevy::prelude::*;
-use std::collections::HashSet;
+use bevy::platform::collections::HashSet;
 
 use crate::StateChildren;
 use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachine, ExitState, Parallel};
@@ -44,12 +44,12 @@ impl FromWorld for Source {
 }
 
 /// Target for an edge transition.
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Debug)]
 #[reflect(Component)]
 pub struct Target(#[entities] pub Entity);
 
 /// Whether the transition should be treated as External (default) or Internal.
-#[derive(Component, Reflect, Default, Clone, Copy)]
+#[derive(Component, Reflect, Default, Clone, Copy, Debug)]
 #[reflect(Component, Default)]
 pub enum EdgeKind { 
     #[default]
@@ -58,7 +58,7 @@ pub enum EdgeKind {
 }
 
 /// Marker for a transition that should fire on entering the source state (no event).
-#[derive(Component, Reflect, Default)]
+#[derive(Component, Reflect, Default, Debug)]
 #[reflect(Component)]
 #[require(EdgeKind)]
 pub struct AlwaysEdge;
