@@ -166,6 +166,7 @@ impl TransitionEventAppExt for App {
             .add_observer(crate::transition_observer::<PhaseEvents<E::ExitEvent, E::EffectEvent, E::EntryEvent>>)
             .add_systems(Update, tick_after_event_timers::<E>)
             .add_observer(cancel_pending_event_on_exit::<E>)
+            .add_observer(replay_deferred_event::<E>)
     }
 }
 

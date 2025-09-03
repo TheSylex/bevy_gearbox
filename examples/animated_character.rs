@@ -74,6 +74,8 @@ pub fn main() {
             setup_player_once_loaded,
             build_machine_when_ready,
             keyboard_input_events,
+            update_locomotion_params,
+            drive_locomotion_from_params,
         ))
         .add_systems(PostUpdate, emit_animation_complete_events.after(AnimationSet))
         .add_observer(apply_anim_request_on_enter)
@@ -147,6 +149,16 @@ struct AnimMachineRoot;
 
 // Removed ClipTracker; completion is detected from ActiveAnimation flags post animation update
 
+#[derive(Component, Default, Debug, Clone, Copy)]
+struct LocomotionParams {
+    speed: f32,
+}
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+enum LocomotionMode { Idle, Walk, Run }
+
+impl Default for LocomotionMode { fn default() -> Self { LocomotionMode::Idle } }
+
 fn setup_player_once_loaded(
     mut commands: Commands,
     graph: Res<AnimGraph>,
@@ -200,6 +212,8 @@ fn build_machine_when_ready(
         commands.entity(grounded).insert(InitialState(locomotion));
         commands.entity(locomotion).insert(InitialState(idle_state));
         commands.entity(root).insert((StateMachine::new(), InitialState(grounded)));
+        // Attach parameters to the machine root for this example
+        commands.entity(root).insert(LocomotionParams::default());
 
         // Edges on Locomotion: events select a child
         let _e_idle = commands.spawn((
@@ -298,6 +312,57 @@ fn keyboard_input_events(
         if input.just_pressed(KeyCode::Digit4) {
             println!("[Input] 4 pressed -> Attack");
             commands.trigger_targets(Attack, root);
+        }
+    }
+}
+
+// Simple demo: adjust locomotion speed parameter with keys and print value
+fn update_locomotion_params(
+    input: Res<ButtonInput<KeyCode>>,
+    mut q: Query<&mut LocomotionParams, With<AnimMachineRoot>>,
+    time: Res<Time>,
+) {
+    for mut params in &mut q {
+        let mut delta = 0.0;
+        if input.pressed(KeyCode::ArrowUp) { delta += 2.0; }
+        if input.pressed(KeyCode::ArrowDown) { delta -= 2.0; }
+        params.speed = (params.speed + delta * time.delta_secs()).clamp(0.0, 10.0);
+        if delta.abs() > 0.0 { println!("[Param] speed = {:.2}", params.speed); }
+    }
+}
+
+// Map speed parameter to locomotion events with hysteresis
+fn drive_locomotion_from_params(
+    q_roots: Query<(Entity, &LocomotionParams), With<AnimMachineRoot>>,
+    mut current: Local<Option<LocomotionMode>>,
+    mut commands: Commands,
+) {
+    // thresholds with hysteresis
+    let walk_enter = 0.2f32; let walk_exit = 0.15f32;
+    let run_enter = 1.5f32; let run_exit = 1.2f32;
+    for (root, params) in &q_roots {
+        let cur = current.get_or_insert(LocomotionMode::Idle);
+        let next = match *cur {
+            LocomotionMode::Idle => {
+                if params.speed >= walk_enter { LocomotionMode::Walk } else { LocomotionMode::Idle }
+            }
+            LocomotionMode::Walk => {
+                if params.speed >= run_enter { LocomotionMode::Run }
+                else if params.speed <= walk_exit { LocomotionMode::Idle }
+                else { LocomotionMode::Walk }
+            }
+            LocomotionMode::Run => {
+                if params.speed <= run_exit { LocomotionMode::Walk } else { LocomotionMode::Run }
+            }
+        };
+        if next != *cur {
+            match next {
+                LocomotionMode::Idle => commands.trigger_targets(SetIdle, root),
+                LocomotionMode::Walk => commands.trigger_targets(SetWalk, root),
+                LocomotionMode::Run => commands.trigger_targets(SetRun, root),
+            }
+            *cur = next;
+            println!("[Locomotion] -> {:?}", next);
         }
     }
 }
