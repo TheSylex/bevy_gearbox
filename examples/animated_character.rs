@@ -15,6 +15,14 @@ use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::DefaultInspectorConfigPlugin;
 use bevy_gearbox_editor::GearboxEditorPlugin;
 
+/// WARNING
+/// WARNING
+/// WARNING
+/// This example is a testing ground for me to try to bridge the gap between bevy animation and gearbox.
+/// It is not a good example of how to use gearbox.
+/// It is not a good example of how to use bevy animation.
+/// Hopefully what I learn here will help me make bevy gearbox into a powerful driver of animation.
+
 // Point the AssetServer to the demiurge assets so we can load models/character.glb
 const DEMIURGE_ASSETS_PATH: &str = "C:/git/demiurge/assets";
 const CHARACTER_GLTF: &str = "models/character.glb";
@@ -74,8 +82,8 @@ pub fn main() {
             setup_player_once_loaded,
             build_machine_when_ready,
             keyboard_input_events,
-            update_locomotion_params,
-            drive_locomotion_from_params,
+            update_velocity_from_input,
+            evaluate_parameter_edges,
         ))
         .add_systems(PostUpdate, emit_animation_complete_events.after(AnimationSet))
         .add_observer(apply_anim_request_on_enter)
@@ -149,15 +157,33 @@ struct AnimMachineRoot;
 
 // Removed ClipTracker; completion is detected from ActiveAnimation flags post animation update
 
-#[derive(Component, Default, Debug, Clone, Copy)]
-struct LocomotionParams {
-    speed: f32,
+// Generic parameter plan (example-level only)
+#[derive(Component, Debug, Clone, Copy, Default)]
+struct Velocity(Vec3);
+
+trait ParameterOf<T: Component> {
+    fn in_range(&self, param: &T) -> bool;
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-enum LocomotionMode { Idle, Walk, Run }
+// Edge guard marker to denote a parameter-based guard
+#[derive(Component)]
+struct EdgeParameter;
 
-impl Default for LocomotionMode { fn default() -> Self { LocomotionMode::Idle } }
+// Example multi-purpose parameter component living on an edge.
+// For now we only implement ParameterOf<Velocity>, but this can grow to include more sources.
+#[derive(Component, Debug, Clone, Copy, Default)]
+struct LocomotionParams {
+    lower_velocity: f32,
+    upper_velocity: f32,
+    hysteresis_velocity: f32,
+}
+
+impl ParameterOf<Velocity> for LocomotionParams {
+    fn in_range(&self, param: &Velocity) -> bool {
+        let v = param.0.length();
+        v + self.hysteresis_velocity >= self.lower_velocity && v - self.hysteresis_velocity <= self.upper_velocity
+    }
+}
 
 fn setup_player_once_loaded(
     mut commands: Commands,
@@ -212,8 +238,8 @@ fn build_machine_when_ready(
         commands.entity(grounded).insert(InitialState(locomotion));
         commands.entity(locomotion).insert(InitialState(idle_state));
         commands.entity(root).insert((StateMachine::new(), InitialState(grounded)));
-        // Attach parameters to the machine root for this example
-        commands.entity(root).insert(LocomotionParams::default());
+        // Attach example parameter source to the machine root
+        commands.entity(root).insert(Velocity(Vec3::ZERO));
 
         // Edges on Locomotion: events select a child
         let _e_idle = commands.spawn((
@@ -236,6 +262,35 @@ fn build_machine_when_ready(
             EventEdge::<SetRun>::default(),
             EdgeKind::Internal,
             Name::new("Locomotion->Run"),
+        )).id();
+
+        // Add Always edges with parameter guards to drive child selection
+        let _p_to_idle = commands.spawn((
+            Source(locomotion),
+            Target(idle_state),
+            AlwaysEdge,
+            EdgeKind::Internal,
+            LocomotionParams { lower_velocity: 0.0, upper_velocity: 0.15, hysteresis_velocity: 0.03 },
+            EdgeParameter,
+            Name::new("Param: speed in [0, 0.15] -> Idle"),
+        )).id();
+        let _p_to_walk = commands.spawn((
+            Source(locomotion),
+            Target(walk_state),
+            AlwaysEdge,
+            EdgeKind::Internal,
+            LocomotionParams { lower_velocity: 0.15, upper_velocity: 1.2, hysteresis_velocity: 0.05 },
+            EdgeParameter,
+            Name::new("Param: speed in (0.15, 1.2] -> Walk"),
+        )).id();
+        let _p_to_run = commands.spawn((
+            Source(locomotion),
+            Target(run_state),
+            AlwaysEdge,
+            EdgeKind::Internal,
+            LocomotionParams { lower_velocity: 1.2, upper_velocity: 999.0, hysteresis_velocity: 0.1 },
+            EdgeParameter,
+            Name::new("Param: speed > 1.2 -> Run"),
         )).id();
 
         // Edge on Grounded: Attack goes to Punch
@@ -317,52 +372,48 @@ fn keyboard_input_events(
 }
 
 // Simple demo: adjust locomotion speed parameter with keys and print value
-fn update_locomotion_params(
+// Update Velocity from arrows just to demo parameter edges
+fn update_velocity_from_input(
     input: Res<ButtonInput<KeyCode>>,
-    mut q: Query<&mut LocomotionParams, With<AnimMachineRoot>>,
+    mut q: Query<&mut Velocity, With<AnimMachineRoot>>,
     time: Res<Time>,
 ) {
-    for mut params in &mut q {
-        let mut delta = 0.0;
-        if input.pressed(KeyCode::ArrowUp) { delta += 2.0; }
-        if input.pressed(KeyCode::ArrowDown) { delta -= 2.0; }
-        params.speed = (params.speed + delta * time.delta_secs()).clamp(0.0, 10.0);
-        if delta.abs() > 0.0 { println!("[Param] speed = {:.2}", params.speed); }
+    for mut v in &mut q {
+        let mut mag_delta = 0.0;
+        if input.pressed(KeyCode::ArrowUp) { mag_delta += 2.0; }
+        if input.pressed(KeyCode::ArrowDown) { mag_delta -= 2.0; }
+        if mag_delta != 0.0 {
+            let speed = (v.0.length() + mag_delta * time.delta_secs()).clamp(0.0, 10.0);
+            v.0 = v.0.normalize_or_zero() * speed;
+            println!("[Velocity] |v| = {:.2}", speed);
+        }
     }
 }
 
-// Map speed parameter to locomotion events with hysteresis
-fn drive_locomotion_from_params(
-    q_roots: Query<(Entity, &LocomotionParams), With<AnimMachineRoot>>,
-    mut current: Local<Option<LocomotionMode>>,
+// Evaluate parameter-guarded Always edges and trigger child selection events
+fn evaluate_parameter_edges(
+    q_roots: Query<(Entity, &Velocity), With<AnimMachineRoot>>,
+    q_edges: Query<(Entity, &Source, &Target, Option<&LocomotionParams>), With<EdgeParameter>>,
+    names: Query<&Name>,
     mut commands: Commands,
 ) {
-    // thresholds with hysteresis
-    let walk_enter = 0.2f32; let walk_exit = 0.15f32;
-    let run_enter = 1.5f32; let run_exit = 1.2f32;
-    for (root, params) in &q_roots {
-        let cur = current.get_or_insert(LocomotionMode::Idle);
-        let next = match *cur {
-            LocomotionMode::Idle => {
-                if params.speed >= walk_enter { LocomotionMode::Walk } else { LocomotionMode::Idle }
+    for (root, vel) in &q_roots {
+        for (_edge, _source, target, vparam) in &q_edges {
+            // Only consider edges that originate from a region under this root
+            // (simple example: just evaluate all; a real impl would scope by ancestry)
+            if let Some(lp) = vparam {
+                if lp.in_range(vel) {
+                    // Drive via existing Set* events by target name in this example
+                    if let Ok(name) = names.get(target.0) {
+                        match name.as_str() {
+                            "Idle" => commands.trigger_targets(SetIdle, root),
+                            "Walk" => commands.trigger_targets(SetWalk, root),
+                            "Run" => commands.trigger_targets(SetRun, root),
+                            _ => {}
+                        }
+                    }
+                }
             }
-            LocomotionMode::Walk => {
-                if params.speed >= run_enter { LocomotionMode::Run }
-                else if params.speed <= walk_exit { LocomotionMode::Idle }
-                else { LocomotionMode::Walk }
-            }
-            LocomotionMode::Run => {
-                if params.speed <= run_exit { LocomotionMode::Walk } else { LocomotionMode::Run }
-            }
-        };
-        if next != *cur {
-            match next {
-                LocomotionMode::Idle => commands.trigger_targets(SetIdle, root),
-                LocomotionMode::Walk => commands.trigger_targets(SetWalk, root),
-                LocomotionMode::Run => commands.trigger_targets(SetRun, root),
-            }
-            *cur = next;
-            println!("[Locomotion] -> {:?}", next);
         }
     }
 }
