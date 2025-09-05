@@ -477,6 +477,7 @@ pub fn check_always_on_guards_changed(
     transitions_query: Query<&Transitions>,
     child_of_query: Query<&StateChildOf>,
     active_query: Query<(), With<Active>>,
+    after_query: Query<&After>,
     mut commands: Commands,
 ) {
     for (edge, guards, source, edge_target) in guards_changed_query.iter() {
@@ -492,11 +493,15 @@ pub fn check_always_on_guards_changed(
         let Ok(transitions) = transitions_query.get(source) else { continue; };
         if !transitions.into_iter().any(|&e| e == edge) { continue; }
 
-        // Ensure edge has a valid target; then fire
+        // Ensure edge has a valid target; then fire (or arm timer if delayed)
         if !edge_target { continue; }
         let root = child_of_query.root_ancestor(source);
-
-        commands.trigger_targets(Transition { source, edge, payload: () }, root);
+        if after_query.get(edge).is_ok() {
+            let after = after_query.get(edge).unwrap();
+            commands.entity(edge).insert(EdgeTimer(Timer::new(after.duration, TimerMode::Once)));
+        } else {
+            commands.trigger_targets(Transition { source, edge, payload: () }, root);
+        }
     }
 }
 
@@ -505,12 +510,14 @@ pub fn start_after_on_enter(
     trigger: Trigger<EnterState>,
     transitions_query: Query<&Transitions>,
     after_query: Query<&After>,
+    always_query: Query<(), With<AlwaysEdge>>,
     mut commands: Commands,
 ) {
     let source = trigger.target();
     let Ok(transitions) = transitions_query.get(source) else { return; };
     for edge in transitions.into_iter().copied() {
-        if let Ok(after) = after_query.get(edge) {
+        if after_query.get(edge).is_ok() && always_query.get(edge).is_ok() {
+            let after = after_query.get(edge).unwrap();
             commands.entity(edge).insert(EdgeTimer(Timer::new(after.duration, TimerMode::Once)));
         }
     }
@@ -575,6 +582,7 @@ pub fn tick_after_system(
     sources_with_transitions: Query<(Entity, &Transitions), With<Active>>, // active source states only
     mut timer_query: Query<&mut EdgeTimer>,
     after_query: Query<&After>,
+    always_query: Query<(), With<AlwaysEdge>>,
     guards_query: Query<&Guards>,
     edge_target_query: Query<&Target>,
     child_of_query: Query<&StateChildOf>,
@@ -584,6 +592,7 @@ pub fn tick_after_system(
         // Walk edges in priority order; fire first eligible
         for edge in transitions.into_iter().copied() {
             if after_query.get(edge).is_err() { continue; }
+            if always_query.get(edge).is_err() { continue; }
             let Ok(mut timer) = timer_query.get_mut(edge) else { continue; };
             timer.0.tick(time.delta());
             if !timer.0.just_finished() { continue; }
