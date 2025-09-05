@@ -291,38 +291,69 @@ fn transition_observer<T: transitions::PhasePayload>(
         let states_to_enter = enter_path[..enter_path.len() - lca_depth].to_vec();
         (ordered_exits, states_to_enter)
     } else {
-        // Non-parallel: original single-leaf logic
-        // Find the leaf that’s under the source
-        let Some(exiting_leaf_state) = current_state.active_leaves.iter().find(|leaf| {
-            **leaf == source_state
-                || child_of_query
-                    .iter_ancestors(**leaf)
-                    .any(|ancestor| ancestor == source_state)
-        }).copied() else {
+        // Non-parallel source: may still have multiple active descendant leaves if there are
+        // deeper parallel regions underneath. Exit ALL active descendant leaves under `source_state`.
+        let mut descendant_leaves: Vec<Entity> = current_state
+            .active_leaves
+            .iter()
+            .copied()
+            .filter(|leaf| {
+                *leaf == source_state
+                    || child_of_query
+                        .iter_ancestors(*leaf)
+                        .any(|ancestor| ancestor == source_state)
+            })
+            .collect();
+
+        if descendant_leaves.is_empty() {
             // This transition is not coming from any of the currently active states.
             return;
-        };
+        }
 
-        let exit_path = get_path_to_root(exiting_leaf_state, &child_of_query);
         let enter_path = get_path_to_root(new_super_state, &child_of_query);
-        let mut lca_depth = exit_path
-            .iter()
-            .rev()
-            .zip(enter_path.iter().rev())
-            .take_while(|(a, b)| a == b)
-            .count();
-        let lca_entity = if lca_depth > 0 { Some(exit_path[exit_path.len() - lca_depth]) } else { None };
         let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::EdgeKind::Internal));
-        if !is_internal {
-            if new_super_state == exiting_leaf_state {
-                lca_depth = lca_depth.saturating_sub(1);
-            } else if lca_entity == Some(source_state) {
-                lca_depth = lca_depth.saturating_sub(1);
+
+        // Build ordered exits by walking each leaf up to (but not including) the LCA with the target path
+        let mut ordered_exits: Vec<Entity> = Vec::new();
+        let mut seen: HashSet<Entity> = HashSet::new();
+        let mut min_lca_depth: Option<usize> = None;
+
+        for leaf in descendant_leaves.drain(..) {
+            let exit_path = get_path_to_root(leaf, &child_of_query);
+            let mut lca_depth = exit_path
+                .iter()
+                .rev()
+                .zip(enter_path.iter().rev())
+                .take_while(|(a, b)| a == b)
+                .count();
+            let lca_entity = if lca_depth > 0 { Some(exit_path[exit_path.len() - lca_depth]) } else { None };
+
+            if !is_internal {
+                if new_super_state == leaf {
+                    lca_depth = lca_depth.saturating_sub(1);
+                } else if lca_entity == Some(source_state) {
+                    lca_depth = lca_depth.saturating_sub(1);
+                }
+            }
+
+            // Track minimal lca_depth across all leaves to compute entry path later
+            min_lca_depth = Some(match min_lca_depth {
+                Some(min) => min.min(lca_depth),
+                None => lca_depth,
+            });
+
+            // Exit from leaf up to (but not including) the LCA portion
+            let upto = exit_path.len() - lca_depth;
+            for &e in &exit_path[..upto] {
+                if seen.insert(e) {
+                    ordered_exits.push(e);
+                }
             }
         }
-        let states_to_exit = exit_path[..exit_path.len() - lca_depth].to_vec();
-        let states_to_enter = enter_path[..enter_path.len() - lca_depth].to_vec();
-        (states_to_exit, states_to_enter)
+
+        let lca_depth_final = min_lca_depth.unwrap_or(0);
+        let states_to_enter = enter_path[..enter_path.len() - lca_depth_final].to_vec();
+        (ordered_exits, states_to_enter)
     };
 
     // Invoke typed Exit payload once at the start (root + source)

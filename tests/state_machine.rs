@@ -495,6 +495,39 @@ fn history_deep_restores_exact_leaves() {
 struct EvtDelayed;
 
 #[test]
+fn event_after_does_not_auto_fire_without_event() {
+    let mut app = test_app();
+    app.add_transition_event::<EvtDelayed>();
+
+    // States: root -> { s, t }; initial: s
+    let root = app.world_mut().spawn_empty().id();
+    let s = app.world_mut().spawn_empty().id();
+    let t = app.world_mut().spawn_empty().id();
+    app.world_mut().entity_mut(s).insert(StateChildOf(root));
+    app.world_mut().entity_mut(t).insert(StateChildOf(root));
+
+    // Edge s --(EvtDelayed, After 50ms)--> t
+    app.world_mut().spawn((
+        Source(s),
+        Target(t),
+        EventEdge::<EvtDelayed>::default(),
+        After { duration: Duration::from_millis(50) },
+    ));
+
+    app.world_mut().entity_mut(root).insert((InitialState(s), StateMachine::new()));
+    app.update();
+
+    // Do NOT send the event; wait beyond the delay and tick
+    std::thread::sleep(Duration::from_millis(60));
+    app.update();
+
+    // Should still be on s because EventEdge with After must not auto-fire
+    let sm = app.world().get::<StateMachine>(root).unwrap();
+    assert!(sm.active_leaves.contains(&s), "should remain on s without event even after delay");
+    assert!(!sm.active_leaves.contains(&t), "must not transition to t without event");
+}
+
+#[test]
 fn event_after_delays_and_fires() {
     let mut app = test_app();
     app.add_transition_event::<EvtDelayed>();
@@ -532,6 +565,69 @@ fn event_after_delays_and_fires() {
 
     let sm = app.world().get::<StateMachine>(root).unwrap();
     assert!(sm.active_leaves.contains(&t), "delayed event edge should fire after duration");
+}
+
+#[derive(SimpleTransition, Event, Clone)]
+struct GoTalents;
+
+#[test]
+fn transitioning_parent_with_parallel_child_exits_all_descendant_leaves() {
+    let mut app = test_app();
+    app.add_transition_event::<GoTalents>();
+
+    // Build hierarchy mimicking InGame (non-parallel) -> Panels (parallel) with two regions -> leaves
+    // and a sibling Talents leaf under InGame.
+    let root = app.world_mut().spawn_empty().id();
+    let in_game = app.world_mut().spawn_empty().id();
+    app.world_mut().entity_mut(in_game).insert(StateChildOf(root));
+
+    let panels = app.world_mut().spawn((Parallel,)).id();
+    app.world_mut().entity_mut(panels).insert(StateChildOf(in_game));
+    let talents = app.world_mut().spawn_empty().id();
+    app.world_mut().entity_mut(talents).insert(StateChildOf(in_game));
+
+    // Two regions under Panels
+    let left_region = app.world_mut().spawn_empty().id();
+    let right_region = app.world_mut().spawn_empty().id();
+    app.world_mut().entity_mut(left_region).insert(StateChildOf(panels));
+    app.world_mut().entity_mut(right_region).insert(StateChildOf(panels));
+
+    // Leaves under regions
+    let left_closed = app.world_mut().spawn_empty().id();
+    let right_closed = app.world_mut().spawn_empty().id();
+    app.world_mut().entity_mut(left_closed).insert(StateChildOf(left_region));
+    app.world_mut().entity_mut(right_closed).insert(StateChildOf(right_region));
+
+    // Initials: InGame -> Panels; Panels -> left_closed & right_closed
+    app.world_mut().entity_mut(in_game).insert(InitialState(panels));
+    app.world_mut().entity_mut(left_region).insert(InitialState(left_closed));
+    app.world_mut().entity_mut(right_region).insert(InitialState(right_closed));
+
+    // Edge: InGame --GoTalents--> Talents
+    app.world_mut().spawn((Source(in_game), Target(talents), EventEdge::<GoTalents>::default()));
+
+    // Initialize machine at root -> InGame path
+    app.world_mut().entity_mut(root).insert((InitialState(in_game), StateMachine::new()));
+    app.update();
+
+    // Assert both parallel leaves active under Panels
+    {
+        let sm = app.world().get::<StateMachine>(root).unwrap();
+        assert!(sm.active_leaves.contains(&left_closed));
+        assert!(sm.active_leaves.contains(&right_closed));
+        assert!(sm.active.contains(&panels));
+    }
+
+    // Transition parent InGame to Talents
+    app.world_mut().commands().trigger_targets(GoTalents, root);
+    app.update();
+
+    // After transition, only Talents should be the active leaf and Panels subtree should be inactive.
+    let sm = app.world().get::<StateMachine>(root).unwrap();
+    assert!(sm.active_leaves.contains(&talents), "Talents must be active leaf");
+    assert!(!sm.active_leaves.contains(&left_closed), "Left panel leaf must be inactive");
+    assert!(!sm.active_leaves.contains(&right_closed), "Right panel leaf must be inactive");
+    assert!(!sm.active.contains(&panels), "Panels parent must not remain active under InGame");
 }
 
 #[derive(SimpleTransition, Event, Clone)]
