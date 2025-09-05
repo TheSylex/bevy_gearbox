@@ -73,6 +73,8 @@ pub struct After {
 impl After {
     #[inline]
     pub fn new(duration: Duration) -> Self { Self { duration } }
+
+    pub fn from_f32(duration: f32) -> Self { Self { duration: Duration::from_secs_f32(duration) } }
 }
 
 #[derive(Component)]

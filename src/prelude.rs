@@ -20,6 +20,7 @@ pub use crate::{
     state_component::StateComponent,
     Parallel,
     state_component::StateInactiveComponent,
+    transitions::After,
     // Enums
     history::History,
     // Traits
