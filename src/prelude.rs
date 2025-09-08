@@ -42,6 +42,9 @@ pub use crate::{
     transitions::replay_deferred_event,
     transitions::TransitionEvent,
     transitions::NoEvent,
+    // Bevy state integration
+    bevy_state::AppBevyStateBridgeExt,
+    bevy_state::GearboxCommandsExt,
     // Derive macros
     SimpleTransition,
 };

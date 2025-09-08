@@ -11,6 +11,7 @@ pub mod history;
 pub mod prelude;
 pub mod state_component;
 pub mod transitions;
+pub mod bevy_state;
 
 // Re-export the derive macro and key types for convenience
 pub use bevy_gearbox_macros::SimpleTransition;
