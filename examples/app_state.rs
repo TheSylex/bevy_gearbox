@@ -14,6 +14,8 @@
 //   and keep transition logic out of UI systems.
 // - Seamless bridge: The provided bridge updates Bevy's State/NextState so you
 //   can still gate systems with in_state(..) while authoring logic in one place.
+// - Consistency: If you're already using Gearbox to drive your character state
+//   machine, you can use the same API to drive your app state machine.
 
 use bevy::prelude::*;
 use bevy_gearbox::prelude::*;
