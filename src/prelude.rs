@@ -48,3 +48,25 @@ pub use crate::{
     // Derive macros
     SimpleTransition,
 };
+
+pub use crate::parameter::{
+    // Parameter components
+    FloatParam,
+    IntParam,
+    BoolParam,
+    // Parameter binding traits
+    FloatParamBinding,
+    IntParamBinding,
+    BoolParamBinding,
+    // Sync systems
+    sync_float_param,
+    sync_int_param,
+    sync_bool_param,
+    // Guard components and appliers
+    FloatInRange,
+    apply_float_param_guards,
+    IntInRange,
+    apply_int_param_guards,
+    BoolEquals,
+    apply_bool_param_guards,
+};

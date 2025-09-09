@@ -9,6 +9,7 @@ pub mod active;
 pub mod guards;
 pub mod history;
 pub mod prelude;
+pub mod parameter;
 pub mod state_component;
 pub mod transitions;
 pub mod bevy_state;
