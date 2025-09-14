@@ -2,8 +2,8 @@ use bevy::prelude::*;
 use bevy_gearbox::prelude::*;
 use bevy_gearbox::transitions::Source;
 use bevy_gearbox::GearboxPlugin;
-use bevy_inspector_egui::bevy_egui::EguiPlugin;
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+//use bevy_inspector_egui::bevy_egui::EguiPlugin;
+//use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use std::time::Duration;
 use bevy_gearbox::StateChildOf;
 
@@ -11,8 +11,8 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(GearboxPlugin)
-        .add_plugins(EguiPlugin::default())
-        .add_plugins(WorldInspectorPlugin::new())
+        //.add_plugins(EguiPlugin::default())
+        //.add_plugins(WorldInspectorPlugin::new())
         .add_systems(Startup, setup)
         .add_systems(Update, (input_system, repeater_system))
         .add_transition_event::<CastAbility>()
@@ -36,12 +36,12 @@ struct Repeater {
 }
 
 // --- Event to trigger state transitions ---
-#[derive(SimpleTransition, Event, Clone)]
-struct CastAbility;
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct CastAbility(Entity);
 
 /// An event fired by a state when its internal logic has completed.
-#[derive(SimpleTransition, Event, Clone)]
-struct OnComplete;
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct OnComplete(Entity);
 
 /// Creates the ability state machine hierarchy.
 fn setup(mut commands: Commands) {
@@ -103,7 +103,7 @@ fn input_system(
     // Press 'C' to cast or reset the ability.
     if keyboard_input.just_pressed(KeyCode::KeyC) {
         println!("\n--- 'C' Pressed: Sending CastAbility event! ---");
-        commands.trigger_targets(CastAbility, machine);
+        commands.trigger(CastAbility(machine));
     }
 }
 
@@ -129,7 +129,7 @@ fn repeater_system(
                 // The repeater is done. Fire the `OnComplete` event on the `Repeating`
                 // state entity. The `EventEdge` on that entity will handle
                 // transitioning back to the `Ready` state.
-                commands.trigger_targets(OnComplete, root_entity);
+                commands.trigger(OnComplete(root_entity));
             }
         }
     }
@@ -137,10 +137,10 @@ fn repeater_system(
 
 /// When we re-enter the 'Ready' state, reset the repeater's values.
 fn reset_repeater_on_cast(
-    trigger: Trigger<ExitState>,
+    trigger: On<ExitState>,
     mut repeater_query: Query<&mut Repeater>,
 ) {
-    let target = trigger.target();
+    let target = trigger.event().event_target();
     if let Ok(mut repeater) = repeater_query.get_mut(target) {
         repeater.remaining = 5;
         repeater.timer.reset();
@@ -148,8 +148,8 @@ fn reset_repeater_on_cast(
 }
 
 /// A debug system to print a message every time any state is entered.
-fn print_enter_state_messages(trigger: Trigger<EnterState>, query: Query<&Name>) {
-    if let Ok(name) = query.get(trigger.target()) {
+fn print_enter_state_messages(trigger: On<EnterState>, query: Query<&Name>) {
+    if let Ok(name) = query.get(trigger.event().event_target()) {
         println!("[STATE ENTERED]: {}", name);
     }
 }

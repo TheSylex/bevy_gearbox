@@ -16,12 +16,12 @@ pub struct StateInactiveComponent<T: Component + Clone>(pub T);
 /// A generic system that adds a component `T` to the state machine's root entity
 /// when a state with `StateComponent<T>` is entered.
 pub fn state_component_enter<T: Component<Mutability = Mutable> + Clone>(
-    trigger: Trigger<EnterState>,
+    trigger: On<EnterState>,
     query: Query<&StateComponent<T>>,
     child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
-    let entered_state = trigger.target();
+    let entered_state = trigger.event().0;
     let Ok(insert_component) = query.get(entered_state) else {
         return;
     };
@@ -36,12 +36,12 @@ pub fn state_component_enter<T: Component<Mutability = Mutable> + Clone>(
 /// A generic system that removes a component `T` from the state machine's root entity
 /// when a state with `StateComponent<T>` is exited.
 pub fn state_component_exit<T: Component>(
-    trigger: Trigger<ExitState>,
+    trigger: On<ExitState>,
     query: Query<&StateComponent<T>>,
     child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
-    let exited_state = trigger.target();
+    let exited_state = trigger.event().0;
     if !query.contains(exited_state) {
         return;
     };
@@ -56,12 +56,12 @@ pub fn state_component_exit<T: Component>(
 /// A generic system that removes a component `T` from the state machine's root entity
 /// when a state with `StateInactiveComponent<T>` is entered.
 pub fn state_inactive_component_enter<T: Component + Clone>(
-    trigger: Trigger<EnterState>,
+    trigger: On<EnterState>,
     query: Query<&StateInactiveComponent<T>>,
     child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
-    let entered_state = trigger.target();
+    let entered_state = trigger.event().0;
     if !query.contains(entered_state) {
         return;
     };
@@ -76,12 +76,12 @@ pub fn state_inactive_component_enter<T: Component + Clone>(
 /// A generic system that restores a component `T` to the state machine's root entity
 /// when a state with `StateInactiveComponent<T>` is exited, using the stored clone.
 pub fn state_inactive_component_exit<T: Component + Clone>(
-    trigger: Trigger<ExitState>,
+    trigger: On<ExitState>,
     query: Query<&StateInactiveComponent<T>>,
     child_of_query: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
-    let exited_state = trigger.target();
+    let exited_state = trigger.event().0;
     let Ok(remove_component) = query.get(exited_state) else {
         return;
     };
@@ -117,5 +117,11 @@ impl StateComponentAppExt for App {
 }
 
 /// Event to reset a subtree rooted at the target entity.
-#[derive(Event, Reflect, Default)]
-pub struct Reset;
+#[derive(EntityEvent, Reflect)]
+pub struct Reset(Entity);
+
+impl Reset {
+    pub fn new(entity: Entity) -> Self {
+        Self(entity)
+    }
+}

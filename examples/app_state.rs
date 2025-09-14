@@ -29,12 +29,12 @@ enum ExampleState {
     Paused,
 }
 
-#[derive(Event, Clone, bevy_gearbox::SimpleTransition)]
-struct Start;
-#[derive(Event, Clone, bevy_gearbox::SimpleTransition)]
-struct Pause;
-#[derive(Event, Clone, bevy_gearbox::SimpleTransition)]
-struct Resume;
+#[derive(EntityEvent, Clone, bevy_gearbox::SimpleTransition)]
+struct Start(Entity);
+#[derive(EntityEvent, Clone, bevy_gearbox::SimpleTransition)]
+struct Pause(Entity);
+#[derive(EntityEvent, Clone, bevy_gearbox::SimpleTransition)]
+struct Resume(Entity);
 
 #[derive(Component)]
 struct ChartRoot;
@@ -81,23 +81,23 @@ fn demo_input(
     use bevy_gearbox::prelude::GearboxCommandsExt;
     if kb.just_pressed(KeyCode::Digit1) {
         println!("Event: Start (Menu -> Playing)");
-        commands.emit_to_chart::<ChartRoot>(Start);
+        commands.emit_to_chart::<ChartRoot>(|root| Start(root));
     }
     if kb.just_pressed(KeyCode::Digit2) {
         println!("Event: Pause (Playing -> Paused)");
-        commands.emit_to_chart::<ChartRoot>(Pause);
+        commands.emit_to_chart::<ChartRoot>(|root| Pause(root));
     }
     if kb.just_pressed(KeyCode::Digit3) {
         println!("Event: Resume (Paused -> Playing)");
-        commands.emit_to_chart::<ChartRoot>(Resume);
+        commands.emit_to_chart::<ChartRoot>(|root| Resume(root));
     }
 }
 
 fn on_enter_state(
-    trigger: Trigger<EnterState>,
+    trigger: On<EnterState>,
     state_q: Query<&ExampleState>,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.event().event_target();
 
     let Ok(state) = state_q.get(entity) else {
         return;

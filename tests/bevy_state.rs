@@ -18,8 +18,8 @@ enum TestState {
     B,
 }
 
-#[derive(SimpleTransition, Event, Clone)]
-struct Go;
+#[derive(EntityEvent, Clone, SimpleTransition)]
+struct Go(Entity);
 
 #[test]
 fn bridge_sets_bevy_state_on_enter_and_updates_on_transition() {
@@ -47,7 +47,7 @@ fn bridge_sets_bevy_state_on_enter_and_updates_on_transition() {
     assert_eq!(**bevy_state, TestState::A);
 
     // Send Go event at root; bridge should update Bevy state to B
-    app.world_mut().commands().trigger_targets(Go, root);
+    app.world_mut().commands().trigger(Go(root));
     app.update();
     let bevy_state = app.world().resource::<State<TestState>>();
     assert_eq!(**bevy_state, TestState::B);
@@ -57,7 +57,6 @@ fn bridge_sets_bevy_state_on_enter_and_updates_on_transition() {
 fn state_scoped_entities_are_despawned_on_exit_of_chart_state() {
     let mut app = test_app();
     app.init_state::<TestState>();
-    app.enable_state_scoped_entities::<TestState>();
     app.add_state_bridge::<TestState>();
     app.add_transition_event::<Go>();
 
@@ -69,7 +68,7 @@ fn state_scoped_entities_are_despawned_on_exit_of_chart_state() {
     app.world_mut().entity_mut(root).insert((InitialState(s_a), StateMachine::new()));
 
     // An entity scoped to TestState::A
-    let scoped = app.world_mut().spawn((StateScoped(TestState::A), Name::new("scoped"))).id();
+    let scoped = app.world_mut().spawn((bevy::state::state_scoped::DespawnOnExit(TestState::A), Name::new("scoped"))).id();
 
     // Initialize to A
     app.update();
@@ -80,7 +79,7 @@ fn state_scoped_entities_are_despawned_on_exit_of_chart_state() {
 
     // Edge A -> B and fire Go
     app.world_mut().spawn((Source(s_a), Target(s_b), EventEdge::<Go>::default()));
-    app.world_mut().commands().trigger_targets(Go, root);
+    app.world_mut().commands().trigger(Go(root));
     app.update();
 
     // Entity should be despawned on exit of the A node
@@ -115,7 +114,7 @@ fn commands_helper_emits_to_marked_chart_root() {
     {
         let mut commands = app.world_mut().commands();
         use bevy_gearbox::prelude::GearboxCommandsExt;
-        commands.emit_to_chart::<RootMarker>(Go);
+        commands.emit_to_chart::<RootMarker>(|root| Go(root));
     }
     app.update();
 

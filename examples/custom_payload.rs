@@ -3,8 +3,11 @@ use bevy_gearbox::prelude::*;
 use bevy_gearbox::GearboxPlugin;
 use bevy::math::primitives::{Plane3d, Sphere, Cuboid};
 use bevy_gearbox::transitions::{AlwaysEdge, After};
+#[cfg(feature = "editor")]
 use bevy_egui::EguiPlugin;
+#[cfg(feature = "editor")]
 use bevy_inspector_egui::DefaultInspectorConfigPlugin;
+#[cfg(feature = "editor")]
 use bevy_gearbox_editor::GearboxEditorPlugin;
 
 // This example focuses on TransitionEvent payloads: mapping a trigger event into
@@ -27,20 +30,38 @@ use bevy_gearbox_editor::GearboxEditorPlugin;
 
 // --- Events ---
 
-#[derive(Event, Clone)]
-struct Attack { pub target: Entity, pub damage: f32 }
+#[derive(EntityEvent, Clone)]
+struct Attack {
+    #[event_target]
+    pub source: Entity, 
+    pub target: Entity, 
+    pub damage: f32 
+}
 
-#[derive(Event, Clone)]
-struct ApplyDamage { pub target: Entity, pub damage: f32 }
+#[derive(EntityEvent, Clone)]
+struct ApplyDamage {
+    #[event_target]
+    pub source: Entity,
+    pub target: Entity, 
+    pub damage: f32 
+}
 
-#[derive(Event, Clone)]
-struct TakeDamage { pub amount: f32 }
+#[derive(EntityEvent, Clone)]
+struct TakeDamage {
+    #[event_target]
+    pub target: Entity,
+    pub amount: f32 
+}
 
-#[derive(Event, Clone)]
-struct DoDamage { pub amount: f32 }
+#[derive(EntityEvent, Clone)]
+struct DoDamage {
+    #[event_target]
+    pub target: Entity,
+    pub amount: f32 
+}
 
-#[derive(Event, Clone)]
-struct Die;
+#[derive(EntityEvent, Clone)]
+struct Die(Entity);
 
 // Map the trigger into a phase payload that emits ApplyDamage on Entry.
 // The edge listens for Attack, but the Entry phase receives ApplyDamage with the
@@ -49,13 +70,13 @@ impl TransitionEvent for Attack {
     type EntryEvent = ApplyDamage;
 
     fn to_entry_event(&self) -> Option<Self::EntryEvent> {
-        Some(ApplyDamage { target: self.target, damage: self.damage })
+        Some(ApplyDamage { source: self.source, target: self.target, damage: self.damage })
     }
 }
 
 impl TransitionEvent for TakeDamage {
     type EntryEvent = DoDamage;
-    fn to_entry_event(&self) -> Option<Self::EntryEvent> { Some(DoDamage { amount: self.amount }) }
+    fn to_entry_event(&self) -> Option<Self::EntryEvent> { Some(DoDamage { target: self.target, amount: self.amount }) }
 }
 
 impl TransitionEvent for Die {}
@@ -101,11 +122,12 @@ struct RespawnQueue(Vec<RespawnRequest>);
 struct RespawnRequest { position: Vec3, delay: f32, timer: f32 }
 
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(GearboxPlugin)
-        .add_plugins((EguiPlugin::default(), DefaultInspectorConfigPlugin, GearboxEditorPlugin))
-        .init_resource::<RespawnQueue>()
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins);
+    app.add_plugins(GearboxPlugin);
+    #[cfg(feature = "editor")]
+    app.add_plugins((EguiPlugin::default(), DefaultInspectorConfigPlugin, GearboxEditorPlugin));
+    app.init_resource::<RespawnQueue>()
         .add_transition_event::<Attack>()
         .add_transition_event::<TakeDamage>()
         .add_transition_event::<Die>()
@@ -120,8 +142,8 @@ fn main() {
         .add_state_component::<Attacking>()
         .add_state_component::<TargetWaiting>()
         .add_state_component::<TakingDamageState>()
-        .add_state_component::<Dead>()
-        .run();
+        .add_state_component::<Dead>();
+    app.run();
 }
 
 fn setup(mut commands: Commands) {
@@ -216,13 +238,13 @@ fn setup(mut commands: Commands) {
         ));
 
         // Bounce motion: on entering Attack, add BounceTowards to shooter toward defender
-        world.entity_mut(attacking).observe(|trigger: Trigger<EnterState>,
+        world.entity_mut(attacking).observe(|trigger: On<EnterState>,
             child_of: Query<&StateChildOf>,
             transforms: Query<&Transform>,
             mut commands: Commands,
             targets: Query<&Transform, With<DummyTarget>>,
         |{
-            let state = trigger.target();
+            let state = trigger.event().event_target();
             let root = child_of.root_ancestor(state);
             if let Ok(tf) = transforms.get(root) {
                 // Clamp bounce distance to avoid reaching the target; anchor to starting position
@@ -259,7 +281,7 @@ fn input_attack_event(
     let Ok((machine, damage)) = shooters.single() else { return; };
     let Ok(target) = dummy.single() else { return; };
     println!("\n-- Space: Attack -> target {:?}, damage {}", target, damage.0);
-    commands.trigger_targets(Attack { target, damage: damage.0 }, machine);
+    commands.trigger(Attack { source: machine, target, damage: damage.0 });
 }
 
 fn drive_bounces(
@@ -292,17 +314,17 @@ fn drive_bounces(
 // Why this is better: the transition remains declarative and testable; input systems
 // don't need to know which phase should apply damage.
 fn apply_damage_system(
-    trigger: Trigger<ApplyDamage>,
+    trigger: On<ApplyDamage>,
     mut commands: Commands,
 ) {
-    let ApplyDamage { target, damage } = trigger.event().clone();
-    commands.trigger_targets(TakeDamage { amount: damage }, target);
+    let ApplyDamage { source: _source, target, damage } = trigger.event().clone();
+    commands.trigger(TakeDamage { target, amount: damage });
 }
 
 // Apply damage to Life on Entry of TakingDamage via payload event (DoDamage).
 // This demonstrates consuming the Entry payload on the state's root entity.
 fn do_damage_on_entry(
-    trigger: Trigger<DoDamage>,
+    trigger: On<DoDamage>,
     child_of: Query<&StateChildOf>,
     mut life_q: Query<&mut Life>,
     transforms: Query<&Transform>,
@@ -310,7 +332,7 @@ fn do_damage_on_entry(
     mut respawns: ResMut<RespawnQueue>,
 ) {
     let amount = trigger.event().amount;
-    let taking_state = trigger.target();
+    let taking_state = trigger.event().event_target();
     let root = child_of.root_ancestor(taking_state);
     if let Ok(mut life) = life_q.get_mut(root) {
         life.0 -= amount;
@@ -320,7 +342,7 @@ fn do_damage_on_entry(
             let mut pos = Vec3::ZERO;
             if let Ok(tf_ro) = transforms.get(root) { pos = tf_ro.translation; }
             respawns.0.push(RespawnRequest { position: pos, delay: 1.0, timer: 0.0 });
-            commands.trigger_targets(Die, root);
+            commands.trigger(Die(root));
             commands.entity(root).despawn();
         }
     }
@@ -328,13 +350,13 @@ fn do_damage_on_entry(
 
 // Visual feedback: turn red during TakingDamage, restore to gray on exit
 fn on_enter_taking_damage_color(
-    trigger: Trigger<EnterState>,
+    trigger: On<EnterState>,
     names: Query<&Name>,
     child_of: Query<&StateChildOf>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut material_handles: Query<&mut MeshMaterial3d<StandardMaterial>>, 
 ) {
-    let state = trigger.target();
+    let state = trigger.event().event_target();
     if let Ok(name) = names.get(state) {
         if name.as_str() != "TakingDamage" { return; }
     } else { return; }
@@ -347,13 +369,13 @@ fn on_enter_taking_damage_color(
 }
 
 fn on_exit_taking_damage_color(
-    trigger: Trigger<ExitState>,
+    trigger: On<ExitState>,
     names: Query<&Name>,
     child_of: Query<&StateChildOf>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut material_handles: Query<&mut MeshMaterial3d<StandardMaterial>>, 
 ) {
-    let state = trigger.target();
+    let state = trigger.event().event_target();
     if let Ok(name) = names.get(state) {
         if name.as_str() != "TakingDamage" { return; }
     } else { return; }
@@ -455,8 +477,8 @@ fn spawn_defender(world: &mut World, position: Vec3) -> Entity {
     defender
 }
 
-fn print_enter_state(trigger: Trigger<EnterState>, names: Query<&Name>) {
-    if let Ok(name) = names.get(trigger.target()) {
+fn print_enter_state(trigger: On<EnterState>, names: Query<&Name>) {
+    if let Ok(name) = names.get(trigger.event().event_target()) {
         println!("[EnterState] {}", name);
     }
 }

@@ -38,8 +38,14 @@ fn init_enters_initial_chain_and_sets_active_sets() {
 }
 
 
-#[derive(SimpleTransition, Event, Clone)]
-struct TestEvt;
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct TestEvt(Entity);
+
+impl TestEvt {
+    fn new(entity: Entity) -> Self {
+        Self(entity)
+    }
+}
 
 #[test]
 fn transitions_priority_first_match_wins() {
@@ -70,7 +76,7 @@ fn transitions_priority_first_match_wins() {
     // Fire event at machine root; should evaluate S's transitions and pick e1 (T1)
     {
         let mut commands = app.world_mut().commands();
-        commands.trigger_targets(TestEvt, root);
+        commands.trigger(TestEvt(root));
     }
     app.update();
 
@@ -89,20 +95,20 @@ fn transitions_priority_first_match_wins() {
 #[derive(Resource, Default, Debug)]
 struct OrderLog(Vec<String>);
 
-fn log_enter(trigger: Trigger<EnterState>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
-    if let Ok(name) = names.get(trigger.target()) {
+fn log_enter(trigger: On<EnterState>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
+    if let Ok(name) = names.get(trigger.event().event_target()) {
         log.0.push(format!("enter:{}", name.as_str()));
     }
 }
 
-fn log_exit(trigger: Trigger<ExitState>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
-    if let Ok(name) = names.get(trigger.target()) {
+fn log_exit(trigger: On<ExitState>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
+    if let Ok(name) = names.get(trigger.event().event_target()) {
         log.0.push(format!("exit:{}", name.as_str()));
     }
 }
 
-fn log_actions(trigger: Trigger<TransitionActions>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
-    if let Ok(name) = names.get(trigger.target()) {
+fn log_actions(trigger: On<TransitionActions>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
+    if let Ok(name) = names.get(trigger.event().event_target()) {
         log.0.push(format!("actions:{}", name.as_str()));
     }
 }
@@ -137,7 +143,7 @@ fn lifecycle_exit_then_transition_actions_then_enter_ordering() {
     app.update();
 
     // Fire event
-    app.world_mut().commands().trigger_targets(TestEvt, root);
+    app.world_mut().commands().trigger(TestEvt(root));
     app.update();
 
     let log = app.world().resource::<OrderLog>().0.clone();
@@ -151,8 +157,8 @@ fn lifecycle_exit_then_transition_actions_then_enter_ordering() {
     assert!(sequence.find("actions:e_b_to_c").unwrap() < sequence.find("enter:C").unwrap(), "actions before enter C: {}", sequence);
 }
 
-#[derive(SimpleTransition, Event, Clone)]
-struct EvtP1;
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct EvtP1(Entity);
 
 #[test]
 fn events_root_propagation_one_per_parallel_region() {
@@ -193,7 +199,7 @@ fn events_root_propagation_one_per_parallel_region() {
     app.update();
 
     // Fire event at root; both regions should fire independently
-    app.world_mut().commands().trigger_targets(EvtP1, root);
+    app.world_mut().commands().trigger(EvtP1(root));
     app.update();
 
     let sm = app.world().get::<StateMachine>(root).unwrap();
@@ -203,10 +209,10 @@ fn events_root_propagation_one_per_parallel_region() {
     assert!(!sm.active_leaves.contains(&s2));
 }
 
-#[derive(SimpleTransition, Event, Clone)]
-struct EvtGoOut;
-#[derive(SimpleTransition, Event, Clone)]
-struct EvtGoBack;
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct EvtGoOut(Entity);
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct EvtGoBack(Entity);
 
 #[test]
 fn history_shallow_saves_immediate_children_under_parallel_and_restores() {
@@ -242,11 +248,11 @@ fn history_shallow_saves_immediate_children_under_parallel_and_restores() {
     app.update();
 
     // Now fire go-out to exit P to Z; this should save shallow history under P
-    app.world_mut().commands().trigger_targets(EvtGoOut, root);
+    app.world_mut().commands().trigger(EvtGoOut(root));
     app.update();
 
     // Go back to P
-    app.world_mut().commands().trigger_targets(EvtGoBack, root);
+    app.world_mut().commands().trigger(EvtGoBack(root));
     app.update();
 
     let sm = app.world().get::<StateMachine>(root).unwrap();
@@ -255,8 +261,8 @@ fn history_shallow_saves_immediate_children_under_parallel_and_restores() {
     assert!(sm.active.contains(&b));
 }
 
-#[derive(SimpleTransition, Event, Clone)]
-struct EvtDefer;
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct EvtDefer(Entity);
 
 #[test]
 fn defer_defers_when_active_and_replays_on_exit_without_consuming_region() {
@@ -282,7 +288,7 @@ fn defer_defers_when_active_and_replays_on_exit_without_consuming_region() {
     app.update();
 
     // Send event targeted at S; it should be deferred and not trigger transition now
-    app.world_mut().commands().trigger_targets(EvtDefer, s);
+    app.world_mut().commands().trigger(EvtDefer(s));
     app.update();
     {
         let sm = app.world().get::<StateMachine>(root).unwrap();
@@ -293,7 +299,7 @@ fn defer_defers_when_active_and_replays_on_exit_without_consuming_region() {
     // Exit S by transitioning root to T via another event replay when S exits
     // Manually cause exit of S by transitioning root to T using a separate path: add edge on S to root->T? Simplify: exit S by explicit Transition event
     // Trigger ExitState on S by transitioning to T through root edge using a direct event
-    app.world_mut().commands().trigger_targets(EvtDefer, root);
+    app.world_mut().commands().trigger(EvtDefer(root));
     app.update();
 
     let sm = app.world().get::<StateMachine>(root).unwrap();
@@ -319,13 +325,13 @@ fn state_component_adds_on_enter_removes_on_exit() {
     assert_eq!(app.world().get::<Foo>(root).cloned(), Some(Foo(7)));
 
     // Transition to sibling T to exit S
-    #[derive(SimpleTransition, Event, Clone, Default)]
-    struct Go;
+    #[derive(SimpleTransition, EntityEvent, Clone)]
+    struct Go(Entity);
     app.add_transition_event::<Go>();
     let t = app.world_mut().spawn_empty().id();
     app.world_mut().entity_mut(t).insert(StateChildOf(root));
     app.world_mut().spawn((Source(s), Target(t), EventEdge::<Go>::default()));
-    app.world_mut().commands().trigger_targets(Go, root);
+    app.world_mut().commands().trigger(Go(root));
     app.update();
 
     // Foo removed from root after exit
@@ -349,7 +355,7 @@ fn transitions_external_vs_internal_lca_reentry() {
     let e_ext = app.world_mut().spawn((Name::new("edge_ext"), Source(a), Target(a), EventEdge::<TestEvt>::default())).id();
     app.world_mut().entity_mut(root).insert((InitialState(a), StateMachine::new()));
     app.update();
-    app.world_mut().commands().trigger_targets(TestEvt, root);
+    app.world_mut().commands().trigger(TestEvt(root));
     app.update();
     let seq = app.world().resource::<OrderLog>().0.join(",");
     assert!(seq.contains("exit:A") && seq.contains("enter:A"), "external should exit and reenter: {}", seq);
@@ -361,7 +367,7 @@ fn transitions_external_vs_internal_lca_reentry() {
         ent.insert(Guards { guards: std::iter::once("blocked".to_string()).collect() });
     }
     app.world_mut().spawn((Name::new("edge_int"), Source(a), Target(a), EventEdge::<TestEvt>::default(), EdgeKind::Internal));
-    app.world_mut().commands().trigger_targets(TestEvt, root);
+    app.world_mut().commands().trigger(TestEvt(root));
     app.update();
     let seq2 = app.world().resource::<OrderLog>().0.join(",");
     assert!(!seq2.contains("exit:A") && !seq2.contains("enter:A"), "internal should not exit/enter: {}", seq2);
@@ -380,7 +386,7 @@ fn transitions_ignored_when_missing_target() {
     app.world_mut().entity_mut(root).insert((InitialState(s), StateMachine::new()));
     app.update();
 
-    app.world_mut().commands().trigger_targets(TestEvt, root);
+    app.world_mut().commands().trigger(TestEvt(root));
     app.update();
 
     let sm = app.world().get::<StateMachine>(root).unwrap();
@@ -469,8 +475,8 @@ fn history_deep_restores_exact_leaves() {
     app.world_mut().entity_mut(a).insert(InitialState(a1));
 
     // Outside Z and edges to go out/in
-    #[derive(SimpleTransition, Event, Clone)] struct Out; 
-    #[derive(SimpleTransition, Event, Clone)] struct Back;
+    #[derive(SimpleTransition, EntityEvent, Clone)] struct Out(Entity); 
+    #[derive(SimpleTransition, EntityEvent, Clone)] struct Back(Entity);
     app.add_transition_event::<Out>();
     app.add_transition_event::<Back>();
     let z = app.world_mut().spawn_empty().id();
@@ -482,17 +488,17 @@ fn history_deep_restores_exact_leaves() {
     app.update();
 
     // Go out then back
-    app.world_mut().commands().trigger_targets(Out, root);
+    app.world_mut().commands().trigger(Out(root));
     app.update();
-    app.world_mut().commands().trigger_targets(Back, root);
+    app.world_mut().commands().trigger(Back(root));
     app.update();
 
     let sm = app.world().get::<StateMachine>(root).unwrap();
     assert!(sm.active_leaves.contains(&a1), "deep history should restore exact leaf A1");
 }
 
-#[derive(SimpleTransition, Event, Clone)]
-struct EvtDelayed;
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct EvtDelayed(Entity);
 
 #[test]
 fn event_after_does_not_auto_fire_without_event() {
@@ -551,7 +557,7 @@ fn event_after_delays_and_fires() {
     app.update();
 
     // Fire event at root: should schedule but not immediately transition
-    app.world_mut().commands().trigger_targets(EvtDelayed, root);
+    app.world_mut().commands().trigger(EvtDelayed(root));
     app.update();
     {
         let sm = app.world().get::<StateMachine>(root).unwrap();
@@ -567,8 +573,8 @@ fn event_after_delays_and_fires() {
     assert!(sm.active_leaves.contains(&t), "delayed event edge should fire after duration");
 }
 
-#[derive(SimpleTransition, Event, Clone)]
-struct GoTalents;
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct GoTalents(Entity);
 
 #[test]
 fn transitioning_parent_with_parallel_child_exits_all_descendant_leaves() {
@@ -619,7 +625,7 @@ fn transitioning_parent_with_parallel_child_exits_all_descendant_leaves() {
     }
 
     // Transition parent InGame to Talents
-    app.world_mut().commands().trigger_targets(GoTalents, root);
+    app.world_mut().commands().trigger(GoTalents(root));
     app.update();
 
     // After transition, only Talents should be the active leaf and Panels subtree should be inactive.
@@ -630,10 +636,10 @@ fn transitioning_parent_with_parallel_child_exits_all_descendant_leaves() {
     assert!(!sm.active.contains(&panels), "Panels parent must not remain active under InGame");
 }
 
-#[derive(SimpleTransition, Event, Clone)]
-struct EvtDelayed2;
-#[derive(SimpleTransition, Event, Clone)]
-struct EvtNow;
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct EvtDelayed2(Entity);
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct EvtNow(Entity);
 
 #[test]
 fn event_after_cancels_when_source_exits_before_timer() {
@@ -664,7 +670,7 @@ fn event_after_cancels_when_source_exits_before_timer() {
     app.update();
 
     // Schedule delayed transition
-    app.world_mut().commands().trigger_targets(EvtDelayed2, root);
+    app.world_mut().commands().trigger(EvtDelayed2(root));
     app.update();
     {
         let sm = app.world().get::<StateMachine>(root).unwrap();
@@ -672,7 +678,7 @@ fn event_after_cancels_when_source_exits_before_timer() {
     }
 
     // Cause source to exit before timer elapses
-    app.world_mut().commands().trigger_targets(EvtNow, root);
+    app.world_mut().commands().trigger(EvtNow(root));
     app.update();
     {
         let sm = app.world().get::<StateMachine>(root).unwrap();
@@ -698,7 +704,7 @@ fn reset_machine_reinitializes() {
     app.update();
 
     // Trigger reset
-    app.world_mut().commands().trigger_targets(ResetRegion, root);
+    app.world_mut().commands().trigger(ResetRegion::new(root));
     app.update();
 
     let sm = app.world().get::<StateMachine>(root).unwrap();
@@ -708,8 +714,8 @@ fn reset_machine_reinitializes() {
 #[derive(Component, Default)]
 struct WasReset;
 
-fn mark_reset(trigger: Trigger<Reset>, mut commands: Commands) {
-    commands.entity(trigger.target()).insert(WasReset);
+fn mark_reset(trigger: On<Reset>, mut commands: Commands) {
+    commands.entity(trigger.event().event_target()).insert(WasReset);
 }
 
 #[test]
@@ -730,7 +736,7 @@ fn reset_edge_triggers_scope_target() {
     app.world_mut().entity_mut(root).insert((InitialState(s), StateMachine::new()));
     app.update();
 
-    app.world_mut().commands().trigger_targets(TestEvt, root);
+    app.world_mut().commands().trigger(TestEvt(root));
     app.update();
 
     assert!(app.world().get::<WasReset>(t).is_some(), "target subtree should have received Reset");
@@ -755,10 +761,10 @@ fn state_inactive_component_removes_on_enter_restores_on_exit() {
     assert!(app.world().get::<Bar>(root).is_none());
 
     // Transition S->T
-    #[derive(SimpleTransition, Event, Clone)] struct Go;
+    #[derive(SimpleTransition, EntityEvent, Clone)] struct Go(Entity);
     app.add_transition_event::<Go>();
     app.world_mut().spawn((Source(s), Target(t), EventEdge::<Go>::default()));
-    app.world_mut().commands().trigger_targets(Go, root);
+    app.world_mut().commands().trigger(Go(root));
     app.update();
 
     // On exit S, Bar is restored
@@ -835,8 +841,8 @@ fn after_timer_handles_missing_target_during_delay() {
     assert!(!sm.active_leaves.contains(&t), "should not transition when target is missing");
 }
 
-#[derive(SimpleTransition, Event, Clone)]
-struct DelayedTestEvt;
+#[derive(SimpleTransition, EntityEvent, Clone)]
+struct DelayedTestEvt(Entity);
 
 #[test]
 fn event_after_timer_respects_guards_added_during_delay() {
@@ -861,7 +867,7 @@ fn event_after_timer_respects_guards_added_during_delay() {
     app.update();
 
     // Fire the event to schedule the delayed transition
-    app.world_mut().commands().trigger_targets(DelayedTestEvt, root);
+    app.world_mut().commands().trigger(DelayedTestEvt(root));
     app.update();
 
     // Add a guard to block the transition while timer is running
@@ -902,7 +908,7 @@ fn event_after_timer_handles_missing_target_during_delay() {
     app.update();
 
     // Fire the event to schedule the delayed transition
-    app.world_mut().commands().trigger_targets(DelayedTestEvt, root);
+    app.world_mut().commands().trigger(DelayedTestEvt(root));
     app.update();
 
     // Remove the target component while timer is running

@@ -11,10 +11,10 @@ pub struct Active;
 pub struct Inactive;
 
 pub(crate) fn add_active(
-    trigger: Trigger<EnterState>,
+    trigger: On<EnterState>,
     mut commands: Commands,
 ) {
-    let target = trigger.target();
+    let target = trigger.event().event_target();
     commands.queue(move |world: &mut World| {
         let root = world.query::<&StateChildOf>().query(world).root_ancestor(target);
         let Some(state_machine) = world.entity(root).get::<StateMachine>() else { return; };
@@ -25,10 +25,10 @@ pub(crate) fn add_active(
 }
 
 pub(crate) fn add_inactive(
-    trigger: Trigger<ExitState>,
+    trigger: On<ExitState>,
     mut commands: Commands,
 ) {
-    let target = trigger.target();
+    let target = trigger.event().event_target();
     commands.queue(move |world: &mut World| {
         let root = world.query::<&StateChildOf>().query(world).root_ancestor(target);
         let Some(state_machine) = world.entity(root).get::<StateMachine>() else { return; };
