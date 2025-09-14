@@ -670,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_gearbox_macros"
-version = "0.3.4"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",

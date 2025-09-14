@@ -31,13 +31,6 @@ fn bridge_chart_to_bevy_state<S: States + FreelyMutableState + Component + Clone
 
 /// Commands helper to emit a transition event to a specific chart root, located by a marker `M`.
 pub trait GearboxCommandsExt {
-    /// Emit an EntityEvent to the chart root identified by marker `M`.
-    fn emit_to_chart<M, E>(&mut self, event: E)
-    where
-        M: Component + 'static,
-        E: EntityEvent + Clone + Send + Sync + 'static,
-        for<'a> <E as Event>::Trigger<'a>: Default;
-
     /// Build and emit an EntityEvent using the resolved chart root `Entity` for marker `M`.
     /// Usage: `commands.emit_to_chart::<AppState>(|root| MyEvent::new(root))`.
     fn emit_to_chart<M>(&mut self, make: impl BuildEntityEvent + Send + 'static)
@@ -46,21 +39,6 @@ pub trait GearboxCommandsExt {
 }
 
 impl<'w, 's> GearboxCommandsExt for Commands<'w, 's> {
-    fn emit_to_chart<M, E>(&mut self, mut event: E)
-    where
-        M: Component + 'static,
-        E: EntityEvent + Clone + Send + Sync + 'static,
-        for<'a> <E as Event>::Trigger<'a>: Default,
-    {
-        self.queue(move |world: &mut World| {
-            let mut q = world.query_filtered::<Entity, With<M>>();
-            if let Ok(root) = q.single(world) {
-                *event.event_target_mut() = root;
-                world.commands().trigger(event);
-            }
-        });
-    }
-
     fn emit_to_chart<M>(&mut self, make: impl BuildEntityEvent + Send + 'static)
     where
         M: Component + 'static,
