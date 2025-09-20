@@ -410,34 +410,34 @@ fn edge_event_listener<E: TransitionEvent + Clone>(
 ) {
     let event = trigger.event();
     
-    // If the event target is a machine root, first try root transitions, then propagate to active leaves
+    // If the event target is a machine root, try leaves/branches first (statechart-like), then fall back to root
     if let Ok(current) = current_state_query.get(trigger.event().event_target()) {
         let machine_root = trigger.event().event_target();
         let mut visited: HashSet<Entity> = HashSet::new();
         let mut fired_regions: HashSet<Entity> = HashSet::new();
-        
-        // First, try to fire transitions on the root itself
-        if try_fire_first_matching_edge(
-            machine_root, event, &transitions_query, &listener_query, &edge_target_query,
-            &guards_query, &child_of_query, &mut defer_query, &active_query, 
-            &after_query, &mut timer_query, &mut commands,
-        ) {
-            return; // Root transition fired, don't propagate to leaves
-        }
-        
-        // If no root transition fired, propagate to active leaves
+
+        // Leaves-first: attempt to fire along each active branch (one per parallel region)
         for &leaf in current.active_leaves.iter() {
             let region_root = find_parallel_region_root(leaf, &child_of_query, &parallel_query);
             if fired_regions.contains(&region_root) { continue; }
-            
+
             if try_fire_first_matching_edge_on_branch(
                 leaf, event, machine_root,
                 &transitions_query, &listener_query, &edge_target_query, &guards_query,
-                &child_of_query, &mut defer_query, &active_query, &after_query, 
+                &child_of_query, &mut defer_query, &active_query, &after_query,
                 &mut timer_query, &mut visited, &mut commands,
             ) {
                 fired_regions.insert(region_root);
             }
+        }
+
+        // If no branch consumed the event, fall back to root-level transitions
+        if fired_regions.is_empty() {
+            let _ = try_fire_first_matching_edge(
+                machine_root, event, &transitions_query, &listener_query, &edge_target_query,
+                &guards_query, &child_of_query, &mut defer_query, &active_query,
+                &after_query, &mut timer_query, &mut commands,
+            );
         }
         return;
     }
