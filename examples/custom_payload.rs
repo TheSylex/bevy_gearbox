@@ -326,7 +326,7 @@ fn apply_damage_system(
 fn do_damage_on_entry(
     trigger: On<DoDamage>,
     child_of: Query<&StateChildOf>,
-    mut life_q: Query<&mut Life>,
+    mut q_life: Query<&mut Life>,
     transforms: Query<&Transform>,
     mut commands: Commands,
     mut respawns: ResMut<RespawnQueue>,
@@ -334,7 +334,7 @@ fn do_damage_on_entry(
     let amount = trigger.event().amount;
     let taking_state = trigger.event().event_target();
     let root = child_of.root_ancestor(taking_state);
-    if let Ok(mut life) = life_q.get_mut(root) {
+    if let Ok(mut life) = q_life.get_mut(root) {
         life.0 -= amount;
         println!("[Damage] Applied {amount}, Life now {:.1}", life.0);
         if life.0 <= 0.0 {

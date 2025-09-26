@@ -21,10 +21,10 @@ impl AppBevyStateBridgeExt for App {
 fn bridge_chart_to_bevy_state<S: States + FreelyMutableState + Component + Clone + 'static>(
     trigger: On<EnterState>,
     mut next: ResMut<NextState<S>>,
-    state_q: Query<&S>,
+    q_state: Query<&S>,
 ) {
     let target = trigger.event().event_target();
-    if let Ok(s) = state_q.get(target) {
+    if let Ok(s) = q_state.get(target) {
         next.set(s.clone());
     }
 }

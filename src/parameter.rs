@@ -97,13 +97,13 @@ fn guard_key_for_float<P>() -> String { format!("float-in-range::<{}>", std::any
 pub fn apply_float_param_guards<P: Send + Sync + 'static>(
     q_edges: Query<(Entity, &Source, &FloatInRange<P>)>,
     q_params: Query<&FloatParam<P>>,
-    child_of_q: Query<&StateChildOf>,
-    mut guards_q: Query<&mut Guards>,
+    q_child_of: Query<&StateChildOf>,
+    mut q_guards: Query<&mut Guards>,
     mut commands: Commands,
 ) {
     let key = guard_key_for_float::<P>();
     for (edge, Source(source), range) in &q_edges {
-        let root = child_of_q.root_ancestor(*source);
+        let root = q_child_of.root_ancestor(*source);
         // Determine desired presence of this guard without mutating existing component
         let desired_blocked = match q_params.get(root) {
             Ok(param) => {
@@ -114,7 +114,7 @@ pub fn apply_float_param_guards<P: Send + Sync + 'static>(
         };
 
         // Read current presence (if any) without triggering change detection
-        let current_has = guards_q
+        let current_has = q_guards
             .get(edge)
             .ok()
             .map(|g| g.has_guard(key.as_str()))
@@ -122,7 +122,7 @@ pub fn apply_float_param_guards<P: Send + Sync + 'static>(
 
         // Only mutate when the membership actually changes
         if desired_blocked != current_has {
-            if let Ok(mut g) = guards_q.get_mut(edge) {
+            if let Ok(mut g) = q_guards.get_mut(edge) {
                 if desired_blocked { g.add_guard(key.as_str()); }
                 else { g.remove_guard(key.as_str()); }
             } else if desired_blocked {
@@ -172,13 +172,13 @@ fn guard_key_for_int<P>() -> String { format!("int-in-range::<{}>", std::any::ty
 pub fn apply_int_param_guards<P: Send + Sync + 'static>(
     q_edges: Query<(Entity, &Source, &IntInRange<P>)>,
     q_params: Query<&IntParam<P>>,
-    child_of_q: Query<&StateChildOf>,
-    mut guards_q: Query<&mut Guards>,
+    q_child_of: Query<&StateChildOf>,
+    mut q_guards: Query<&mut Guards>,
     mut commands: Commands,
 ){
     let key = guard_key_for_int::<P>();
     for (edge, Source(source), range) in &q_edges {
-        let root = child_of_q.root_ancestor(*source);
+        let root = q_child_of.root_ancestor(*source);
         let desired_blocked = match q_params.get(root) {
             Ok(param) => {
                 let v = param.get();
@@ -188,14 +188,14 @@ pub fn apply_int_param_guards<P: Send + Sync + 'static>(
             Err(_) => true,
         };
 
-        let current_has = guards_q
+        let current_has = q_guards
             .get(edge)
             .ok()
             .map(|g| g.has_guard(key.as_str()))
             .unwrap_or(false);
 
         if desired_blocked != current_has {
-            if let Ok(mut g) = guards_q.get_mut(edge) {
+            if let Ok(mut g) = q_guards.get_mut(edge) {
                 if desired_blocked { g.add_guard(key.as_str()); }
                 else { g.remove_guard(key.as_str()); }
             } else if desired_blocked {
@@ -240,26 +240,26 @@ fn guard_key_for_bool<P>() -> String { format!("bool-equals::<{}>", std::any::ty
 pub fn apply_bool_param_guards<P: Send + Sync + 'static>(
     q_edges: Query<(Entity, &Source, &BoolEquals<P>)>,
     q_params: Query<&BoolParam<P>>,
-    child_of_q: Query<&StateChildOf>,
-    mut guards_q: Query<&mut Guards>,
+    q_child_of: Query<&StateChildOf>,
+    mut q_guards: Query<&mut Guards>,
     mut commands: Commands,
 ){
     let key = guard_key_for_bool::<P>();
     for (edge, Source(source), eq) in &q_edges {
-        let root = child_of_q.root_ancestor(*source);
+        let root = q_child_of.root_ancestor(*source);
         let desired_blocked = match q_params.get(root) {
             Ok(param) => param.get() != eq.expected,
             Err(_) => true,
         };
 
-        let current_has = guards_q
+        let current_has = q_guards
             .get(edge)
             .ok()
             .map(|g| g.has_guard(key.as_str()))
             .unwrap_or(false);
 
         if desired_blocked != current_has {
-            if let Ok(mut g) = guards_q.get_mut(edge) {
+            if let Ok(mut g) = q_guards.get_mut(edge) {
                 if desired_blocked { g.add_guard(key.as_str()); }
                 else { g.remove_guard(key.as_str()); }
             } else if desired_blocked {

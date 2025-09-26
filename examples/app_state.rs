@@ -95,11 +95,11 @@ fn demo_input(
 
 fn on_enter_state(
     trigger: On<EnterState>,
-    state_q: Query<&ExampleState>,
+    q_state: Query<&ExampleState>,
 ) {
     let entity = trigger.event().event_target();
 
-    let Ok(state) = state_q.get(entity) else {
+    let Ok(state) = q_state.get(entity) else {
         return;
     };
     println!("Enter gearbox state: {:?}", state);

@@ -110,7 +110,7 @@ fn input_system(
 /// The core logic for the repeater. Ticks the timer and fires "projectiles".
 fn repeater_system(
     mut repeater_query: Query<(Entity, &mut Repeater), With<Active>>,
-    child_of_query: Query<&bevy_gearbox::StateChildOf>,
+    q_child_of: Query<&bevy_gearbox::StateChildOf>,
     time: Res<Time>,
     mut commands: Commands,
 ) {
@@ -123,7 +123,7 @@ fn repeater_system(
                 repeater.remaining -= 1;
             }
 
-            let root_entity = child_of_query.root_ancestor(entity);
+            let root_entity = q_child_of.root_ancestor(entity);
 
             if repeater.remaining == 0 {
                 // The repeater is done. Fire the `OnComplete` event on the `Repeating`

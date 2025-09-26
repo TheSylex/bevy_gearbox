@@ -193,14 +193,14 @@ impl ResetRegion {
 /// Also handles history state saving and restoration.
 fn transition_observer<T: transitions::PhasePayload>(
     trigger: On<Transition<T>>,
-    mut machine_query: Query<&mut StateMachine>,
-    parallel_query: Query<&Parallel>,
-    children_query: Query<&StateChildren>,
+    mut q_sm: Query<&mut StateMachine>,
+    q_parallel: Query<&Parallel>,
+    q_children: Query<&StateChildren>,
     initial_state_query: Query<&InitialState>,
     history_query: Query<&History>,
     mut history_state_query: Query<&mut HistoryState>,
-    child_of_query: Query<&StateChildOf>,
-    edge_target_query: Query<&transitions::Target>,
+    q_child_of: Query<&StateChildOf>,
+    edge_q_target: Query<&transitions::Target>,
     kind_query: Query<&transitions::EdgeKind>,
     mut commands: Commands,
 ) {
@@ -208,12 +208,12 @@ fn transition_observer<T: transitions::PhasePayload>(
     let source_state = trigger.event().source;
     // Resolve target: prefer Target on the edge; otherwise treat the edge itself
     // as the super state to start from (useful for root init where initial is on the state).
-    let new_super_state = match edge_target_query.get(trigger.event().edge) {
+    let new_super_state = match edge_q_target.get(trigger.event().edge) {
         Ok(edge_target) => edge_target.0,
         Err(_) => trigger.event().edge,
     };
 
-    let Ok(mut current_state) = machine_query.get_mut(machine_entity) else {
+    let Ok(mut current_state) = q_sm.get_mut(machine_entity) else {
         return;
     };
 
@@ -225,7 +225,7 @@ fn transition_observer<T: transitions::PhasePayload>(
         // Build path from target up to (but excluding) the machine root
         let mut path_to_target: Vec<Entity> = vec![new_super_state];
         path_to_target.extend(
-            child_of_query
+            q_child_of
                 .iter_ancestors(new_super_state)
                 .take_while(|&ancestor| ancestor != machine_entity),
         );
@@ -238,21 +238,21 @@ fn transition_observer<T: transitions::PhasePayload>(
         let new_leaf_states = get_all_leaf_states(
             new_super_state,
             &initial_state_query,
-            &children_query,
-            &parallel_query,
+            &q_children,
+            &q_parallel,
             &history_query,
             &history_state_query,
-            &child_of_query,
+            &q_child_of,
             &mut commands,
         );
         current_state.active_leaves.extend(new_leaf_states);
         // Derive full active set from leaves
-        current_state.active = compute_active_from_leaves(&current_state.active_leaves, &child_of_query);
+        current_state.active = compute_active_from_leaves(&current_state.active_leaves, &q_child_of);
         return;
     }
 
     // Determine whether the source is a parallel parent (transition defined on a parallel state)
-    let source_is_parallel = parallel_query.get(source_state).is_ok();
+    let source_is_parallel = q_parallel.get(source_state).is_ok();
 
     // Exit/enter computation diverges for parallel parents
     let (states_to_exit_vec, states_to_enter_vec) = if source_is_parallel {
@@ -262,11 +262,11 @@ fn transition_observer<T: transitions::PhasePayload>(
         for &leaf in current_state.active_leaves.iter() {
             // Consider only leaves that are descendants of the parallel source
             let is_descendant = leaf == source_state
-                || child_of_query.iter_ancestors(leaf).any(|a| a == source_state);
+                || q_child_of.iter_ancestors(leaf).any(|a| a == source_state);
             if !is_descendant { continue; }
 
             // Exit path from leaf up to source_state (inclusive)
-            let path = get_path_to_root(leaf, &child_of_query);
+            let path = get_path_to_root(leaf, &q_child_of);
             if let Some(pos) = path.iter().position(|&e| e == source_state) {
                 let slice = &path[..=pos]; // includes source_state
                 for &e in slice {
@@ -276,8 +276,8 @@ fn transition_observer<T: transitions::PhasePayload>(
         }
 
         // 2) Enter: compute LCA between source_state and new_super_state
-        let exit_path_from_source = get_path_to_root(source_state, &child_of_query);
-        let enter_path = get_path_to_root(new_super_state, &child_of_query);
+        let exit_path_from_source = get_path_to_root(source_state, &q_child_of);
+        let enter_path = get_path_to_root(new_super_state, &q_child_of);
 
         let mut lca_depth = exit_path_from_source
             .iter()
@@ -307,7 +307,7 @@ fn transition_observer<T: transitions::PhasePayload>(
             .copied()
             .filter(|leaf| {
                 *leaf == source_state
-                    || child_of_query
+                    || q_child_of
                         .iter_ancestors(*leaf)
                         .any(|ancestor| ancestor == source_state)
             })
@@ -318,7 +318,7 @@ fn transition_observer<T: transitions::PhasePayload>(
             return;
         }
 
-        let enter_path = get_path_to_root(new_super_state, &child_of_query);
+        let enter_path = get_path_to_root(new_super_state, &q_child_of);
         let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::EdgeKind::Internal));
 
         // Build ordered exits by walking each leaf up to (but not including) the LCA with the target path
@@ -327,7 +327,7 @@ fn transition_observer<T: transitions::PhasePayload>(
         let mut min_lca_depth: Option<usize> = None;
 
         for leaf in descendant_leaves.drain(..) {
-            let exit_path = get_path_to_root(leaf, &child_of_query);
+            let exit_path = get_path_to_root(leaf, &q_child_of);
             let mut lca_depth = exit_path
                 .iter()
                 .rev()
@@ -365,7 +365,7 @@ fn transition_observer<T: transitions::PhasePayload>(
     };
 
     // Invoke typed Exit payload once at the start (root + source)
-    trigger.event().payload.on_exit(&mut commands, source_state, &children_query, &current_state);
+    trigger.event().payload.on_exit(&mut commands, source_state, &q_children, &current_state);
     for entity in states_to_exit_vec.iter() {
         // Save history if this state has history behavior
         if let Ok(history) = history_query.get(*entity) {
@@ -378,7 +378,7 @@ fn transition_observer<T: transitions::PhasePayload>(
                         // Track the previous node while walking ancestors; when we hit `entity`,
                         // `prev` is the immediate child under `entity`.
                         let mut prev = leaf;
-                        for ancestor in child_of_query.iter_ancestors(leaf) {
+                        for ancestor in q_child_of.iter_ancestors(leaf) {
                             if ancestor == *entity {
                                 saved.insert(prev);
                                 break;
@@ -392,7 +392,7 @@ fn transition_observer<T: transitions::PhasePayload>(
                     // For deep history, save all active descendant leaves
                     current_state.active_leaves.iter()
                         .filter(|&&state| {
-                            state == *entity || child_of_query
+                            state == *entity || q_child_of
                                 .iter_ancestors(state)
                                  .any(|ancestor| ancestor == *entity)
                         })
@@ -421,7 +421,7 @@ fn transition_observer<T: transitions::PhasePayload>(
 
     // Transition actions phase (between exits and entries)
     commands.trigger(TransitionActions(trigger.event().edge));
-    trigger.event().payload.on_effect(&mut commands, trigger.event().edge, &children_query, &current_state);
+    trigger.event().payload.on_effect(&mut commands, trigger.event().edge, &q_children, &current_state);
     // Invoke typed Effect payload if present
     // Note: we avoid trait bounds here; user code can downcast payload if desired via helper
 
@@ -434,34 +434,34 @@ fn transition_observer<T: transitions::PhasePayload>(
     let new_leaf_states = get_all_leaf_states(
         new_super_state,
         &initial_state_query,
-        &children_query,
-        &parallel_query,
+        &q_children,
+        &q_parallel,
         &history_query,
         &history_state_query,
-        &child_of_query,
+        &q_child_of,
         &mut commands,
     );
     current_state.active_leaves.extend(new_leaf_states);
     // Invoke typed Entry payload
-    trigger.event().payload.on_entry(&mut commands, new_super_state, &children_query, &current_state);
+    trigger.event().payload.on_entry(&mut commands, new_super_state, &q_children, &current_state);
     // Derive full active set from leaves
-    current_state.active = compute_active_from_leaves(&current_state.active_leaves, &child_of_query);
+    current_state.active = compute_active_from_leaves(&current_state.active_leaves, &q_child_of);
 }
 
-fn get_path_to_root(start_entity: Entity, child_of_query: &Query<&StateChildOf>) -> Vec<Entity> {
+fn get_path_to_root(start_entity: Entity, q_child_of: &Query<&StateChildOf>) -> Vec<Entity> {
     let mut path = vec![start_entity];
-    path.extend(child_of_query.iter_ancestors(start_entity));
+    path.extend(q_child_of.iter_ancestors(start_entity));
     path
 }
 
 pub fn get_all_leaf_states(
     start_node: Entity,
     initial_state_query: &Query<&InitialState>,
-    children_query: &Query<&StateChildren>,
-    parallel_query: &Query<&Parallel>,
+    q_children: &Query<&StateChildren>,
+    q_parallel: &Query<&Parallel>,
     history_query: &Query<&History>,
     history_state_query: &Query<&mut HistoryState>,
-    child_of_query: &Query<&StateChildOf>,
+    q_child_of: &Query<&StateChildOf>,
     commands: &mut Commands,
 ) -> HashSet<Entity> {
 
@@ -485,7 +485,7 @@ pub fn get_all_leaf_states(
                     for &saved_state in &history_state.0 {
                         let mut path_to_substate = vec![saved_state];
                         path_to_substate.extend(
-                            child_of_query
+                            q_child_of
                                 .iter_ancestors(saved_state)
                                 .take_while(|&ancestor| ancestor != entity),
                         );
@@ -499,8 +499,8 @@ pub fn get_all_leaf_states(
             }
         }
         // 2) If it's a parallel state (without history), explore all children regions.
-        else if parallel_query.get(entity).is_ok() {
-            if let Ok(children) = children_query.get(entity) {
+        else if q_parallel.get(entity).is_ok() {
+            if let Ok(children) = q_children.get(entity) {
                 found_next = true;
                 for &child in children {
                     commands.trigger(EnterState(child));
@@ -516,7 +516,7 @@ pub fn get_all_leaf_states(
             // that are descendants of the current state (`entity`).
             let mut path_to_substate = vec![initial_state.0];
             path_to_substate.extend(
-                child_of_query
+                q_child_of
                     .iter_ancestors(initial_state.0)
                     .take_while(|&ancestor| ancestor != entity),
             );
@@ -539,12 +539,12 @@ pub fn get_all_leaf_states(
 
 fn compute_active_from_leaves(
     leaves: &HashSet<Entity>,
-    child_of_query: &Query<&StateChildOf>,
+    q_child_of: &Query<&StateChildOf>,
 ) -> HashSet<Entity> {
     let mut active: HashSet<Entity> = HashSet::new();
     for &leaf in leaves.iter() {
         active.insert(leaf);
-        for ancestor in child_of_query.iter_ancestors(leaf) {
+        for ancestor in q_child_of.iter_ancestors(leaf) {
             active.insert(ancestor);
         }
     }
@@ -565,11 +565,11 @@ fn initialize_state_machine(
 fn reset_state_region(
     trigger: On<ResetRegion>,
     mut commands: Commands,
-    children_query: Query<&StateChildren>,
+    q_children: Query<&StateChildren>,
 ) {
     let root = trigger.event().event_target();
 
-    for child in children_query.iter_descendants(root) {
+    for child in q_children.iter_descendants(root) {
         commands.entity(child).remove::<Active>().insert(Inactive);
         commands.trigger(ResetRegion(child));
     }

@@ -18,7 +18,7 @@ pub struct StateInactiveComponent<T: Component + Clone>(pub T);
 pub fn state_component_enter<T: Component<Mutability = Mutable> + Clone>(
     trigger: On<EnterState>,
     query: Query<&StateComponent<T>>,
-    child_of_query: Query<&StateChildOf>,
+    q_child_of: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
     let entered_state = trigger.event().0;
@@ -26,7 +26,7 @@ pub fn state_component_enter<T: Component<Mutability = Mutable> + Clone>(
         return;
     };
 
-    let root_entity = child_of_query.root_ancestor(entered_state);
+    let root_entity = q_child_of.root_ancestor(entered_state);
 
     if root_entity != entered_state {
         commands.entity(root_entity).insert(insert_component.0.clone());
@@ -38,7 +38,7 @@ pub fn state_component_enter<T: Component<Mutability = Mutable> + Clone>(
 pub fn state_component_exit<T: Component>(
     trigger: On<ExitState>,
     query: Query<&StateComponent<T>>,
-    child_of_query: Query<&StateChildOf>,
+    q_child_of: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
     let exited_state = trigger.event().0;
@@ -46,7 +46,7 @@ pub fn state_component_exit<T: Component>(
         return;
     };
 
-    let root_entity = child_of_query.root_ancestor(exited_state);
+    let root_entity = q_child_of.root_ancestor(exited_state);
 
     if root_entity != exited_state {
         commands.entity(root_entity).remove::<T>();
@@ -58,7 +58,7 @@ pub fn state_component_exit<T: Component>(
 pub fn state_inactive_component_enter<T: Component + Clone>(
     trigger: On<EnterState>,
     query: Query<&StateInactiveComponent<T>>,
-    child_of_query: Query<&StateChildOf>,
+    q_child_of: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
     let entered_state = trigger.event().0;
@@ -66,7 +66,7 @@ pub fn state_inactive_component_enter<T: Component + Clone>(
         return;
     };
 
-    let root_entity = child_of_query.root_ancestor(entered_state);
+    let root_entity = q_child_of.root_ancestor(entered_state);
 
     if root_entity != entered_state {
         commands.entity(root_entity).remove::<T>();
@@ -78,7 +78,7 @@ pub fn state_inactive_component_enter<T: Component + Clone>(
 pub fn state_inactive_component_exit<T: Component + Clone>(
     trigger: On<ExitState>,
     query: Query<&StateInactiveComponent<T>>,
-    child_of_query: Query<&StateChildOf>,
+    q_child_of: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
     let exited_state = trigger.event().0;
@@ -86,7 +86,7 @@ pub fn state_inactive_component_exit<T: Component + Clone>(
         return;
     };
 
-    let root_entity = child_of_query.root_ancestor(exited_state);
+    let root_entity = q_child_of.root_ancestor(exited_state);
 
     if root_entity != exited_state {
         commands.entity(root_entity).insert(remove_component.0.clone());
