@@ -400,7 +400,7 @@ fn edge_event_listener<E: TransitionEvent + Clone>(
     q_edge_target: Query<&Target>,
     q_guards: Query<&Guards>,
     q_child_of: Query<&StateChildOf>,
-    current_state_query: Query<&StateMachine>,
+    q_sm: Query<&StateMachine>,
     mut q_defer: Query<&mut DeferEvent<E>>,
     q_active: Query<(), With<Active>>,
     q_parallel: Query<&Parallel>,
@@ -411,7 +411,7 @@ fn edge_event_listener<E: TransitionEvent + Clone>(
     let event = trigger.event();
     
     // If the event target is a machine root, try leaves/branches first (statechart-like), then fall back to root
-    if let Ok(current) = current_state_query.get(trigger.event().event_target()) {
+    if let Ok(current) = q_sm.get(trigger.event().event_target()) {
         let machine_root = trigger.event().event_target();
         let mut visited: HashSet<Entity> = HashSet::new();
         let mut fired_regions: HashSet<Entity> = HashSet::new();
@@ -522,14 +522,14 @@ fn try_fire_first_matching_edge_on_branch<E: EntityEvent + Clone + TransitionEve
 
 /// When guards on an Always edge change while its source state is active, re-check and fire if now allowed.
 pub fn check_always_on_guards_changed(
-    guards_changed_query: Query<(Entity, &Guards, &Source, Has<Target>), (Changed<Guards>, With<AlwaysEdge>)>, 
+    q_guards_changed: Query<(Entity, &Guards, &Source, Has<Target>), (Changed<Guards>, With<AlwaysEdge>)>, 
     q_transitions: Query<&Transitions>,
     q_child_of: Query<&StateChildOf>,
     q_active: Query<(), With<Active>>,
     q_after: Query<&After>,
     mut commands: Commands,
 ) {
-    for (edge, guards, source, edge_target) in guards_changed_query.iter() {
+    for (edge, guards, source, edge_target) in q_guards_changed.iter() {
 
         let source = source.0;
 
@@ -734,13 +734,13 @@ pub fn tick_after_event_timers<E: TransitionEvent + Clone + 'static>(
 pub fn cancel_pending_event_on_exit<E: EntityEvent + Clone + 'static>(
     trigger: On<ExitState>,
     q_transitions: Query<&Transitions>,
-    pending_query: Query<&PendingEvent<E>>,
+    q_pending: Query<&PendingEvent<E>>,
     mut commands: Commands,
 ){
     let source = trigger.event().event_target();
     let Ok(transitions) = q_transitions.get(source) else { return; };
     for &edge in transitions.into_iter() {
-        if pending_query.get(edge).is_ok() {
+        if q_pending.get(edge).is_ok() {
             cleanup_edge_timer_and_pending::<E>(&mut commands, edge);
         }
     }

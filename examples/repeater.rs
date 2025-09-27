@@ -96,10 +96,10 @@ fn setup(mut commands: Commands) {
 /// Listens for keyboard input and sends events to trigger state transitions.
 fn input_system(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    query: Query<Entity, With<AbilityMachine>>,
+    q_ability_machine: Query<Entity, With<AbilityMachine>>,
     mut commands: Commands
 ) {
-    let Ok(machine) = query.single() else { return };
+    let Ok(machine) = q_ability_machine.single() else { return };
     // Press 'C' to cast or reset the ability.
     if keyboard_input.just_pressed(KeyCode::KeyC) {
         println!("\n--- 'C' Pressed: Sending CastAbility event! ---");
@@ -109,13 +109,13 @@ fn input_system(
 
 /// The core logic for the repeater. Ticks the timer and fires "projectiles".
 fn repeater_system(
-    mut repeater_query: Query<(Entity, &mut Repeater), With<Active>>,
+    mut q_repeater: Query<(Entity, &mut Repeater), With<Active>>,
     q_child_of: Query<&bevy_gearbox::StateChildOf>,
     time: Res<Time>,
     mut commands: Commands,
 ) {
     // This system only runs when the machine is in the `Repeating` state.
-    for (entity, mut repeater) in repeater_query.iter_mut() {
+    for (entity, mut repeater) in q_repeater.iter_mut() {
         repeater.timer.tick(time.delta());
         if repeater.timer.just_finished() {
             if repeater.remaining > 0 {
@@ -138,10 +138,10 @@ fn repeater_system(
 /// When we re-enter the 'Ready' state, reset the repeater's values.
 fn reset_repeater_on_cast(
     trigger: On<ExitState>,
-    mut repeater_query: Query<&mut Repeater>,
+    mut q_repeater: Query<&mut Repeater>,
 ) {
     let target = trigger.event().event_target();
-    if let Ok(mut repeater) = repeater_query.get_mut(target) {
+    if let Ok(mut repeater) = q_repeater.get_mut(target) {
         repeater.remaining = 5;
         repeater.timer.reset();
     }

@@ -196,19 +196,19 @@ fn transition_observer<T: transitions::PhasePayload>(
     mut q_sm: Query<&mut StateMachine>,
     q_parallel: Query<&Parallel>,
     q_children: Query<&StateChildren>,
-    initial_state_query: Query<&InitialState>,
-    history_query: Query<&History>,
-    mut history_state_query: Query<&mut HistoryState>,
+    q_initial_state: Query<&InitialState>,
+    q_history: Query<&History>,
+    mut q_history_state: Query<&mut HistoryState>,
     q_child_of: Query<&StateChildOf>,
-    edge_q_target: Query<&transitions::Target>,
-    kind_query: Query<&transitions::EdgeKind>,
+    q_edge_target: Query<&transitions::Target>,
+    q_kind: Query<&transitions::EdgeKind>,
     mut commands: Commands,
 ) {
     let machine_entity = trigger.event().machine;
     let source_state = trigger.event().source;
     // Resolve target: prefer Target on the edge; otherwise treat the edge itself
     // as the super state to start from (useful for root init where initial is on the state).
-    let new_super_state = match edge_q_target.get(trigger.event().edge) {
+    let new_super_state = match q_edge_target.get(trigger.event().edge) {
         Ok(edge_target) => edge_target.0,
         Err(_) => trigger.event().edge,
     };
@@ -237,11 +237,11 @@ fn transition_observer<T: transitions::PhasePayload>(
 
         let new_leaf_states = get_all_leaf_states(
             new_super_state,
-            &initial_state_query,
+            &q_initial_state,
             &q_children,
             &q_parallel,
-            &history_query,
-            &history_state_query,
+            &q_history,
+            &q_history_state,
             &q_child_of,
             &mut commands,
         );
@@ -288,7 +288,7 @@ fn transition_observer<T: transitions::PhasePayload>(
 
         let lca_entity = if lca_depth > 0 { Some(exit_path_from_source[exit_path_from_source.len() - lca_depth]) } else { None };
 
-        let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::EdgeKind::Internal));
+        let is_internal = matches!(q_kind.get(trigger.event().edge), Ok(transitions::EdgeKind::Internal));
         if !is_internal {
             // If source is the LCA, default external re-enters the source
             if lca_entity == Some(source_state) {
@@ -319,7 +319,7 @@ fn transition_observer<T: transitions::PhasePayload>(
         }
 
         let enter_path = get_path_to_root(new_super_state, &q_child_of);
-        let is_internal = matches!(kind_query.get(trigger.event().edge), Ok(transitions::EdgeKind::Internal));
+        let is_internal = matches!(q_kind.get(trigger.event().edge), Ok(transitions::EdgeKind::Internal));
 
         // Build ordered exits by walking each leaf up to (but not including) the LCA with the target path
         let mut ordered_exits: Vec<Entity> = Vec::new();
@@ -368,7 +368,7 @@ fn transition_observer<T: transitions::PhasePayload>(
     trigger.event().payload.on_exit(&mut commands, source_state, &q_children, &current_state);
     for entity in states_to_exit_vec.iter() {
         // Save history if this state has history behavior
-        if let Ok(history) = history_query.get(*entity) {
+        if let Ok(history) = q_history.get(*entity) {
             let states_to_save = match history {
                 History::Shallow => {
                     // For shallow history, save the immediate child of `entity` on the path
@@ -402,7 +402,7 @@ fn transition_observer<T: transitions::PhasePayload>(
             };
             
             // Insert or update the history state
-            if let Ok(mut existing_history) = history_state_query.get_mut(*entity) {
+            if let Ok(mut existing_history) = q_history_state.get_mut(*entity) {
                 existing_history.0 = states_to_save;
             } else {
                 commands.entity(*entity).insert(HistoryState(states_to_save));
@@ -433,11 +433,11 @@ fn transition_observer<T: transitions::PhasePayload>(
     // Now, from the entered super state, drill down to the new leaf states.
     let new_leaf_states = get_all_leaf_states(
         new_super_state,
-        &initial_state_query,
+        &q_initial_state,
         &q_children,
         &q_parallel,
-        &history_query,
-        &history_state_query,
+        &q_history,
+        &q_history_state,
         &q_child_of,
         &mut commands,
     );
@@ -456,11 +456,11 @@ fn get_path_to_root(start_entity: Entity, q_child_of: &Query<&StateChildOf>) -> 
 
 pub fn get_all_leaf_states(
     start_node: Entity,
-    initial_state_query: &Query<&InitialState>,
+    q_initial_state: &Query<&InitialState>,
     q_children: &Query<&StateChildren>,
     q_parallel: &Query<&Parallel>,
-    history_query: &Query<&History>,
-    history_state_query: &Query<&mut HistoryState>,
+    q_history: &Query<&History>,
+    q_history_state: &Query<&mut HistoryState>,
     q_child_of: &Query<&StateChildOf>,
     commands: &mut Commands,
 ) -> HashSet<Entity> {
@@ -472,7 +472,7 @@ pub fn get_all_leaf_states(
         let mut found_next = false;
 
         // 1) History takes precedence (works for both parallel and non-parallel parents)
-        if let (Ok(history), Ok(history_state)) = (history_query.get(entity), history_state_query.get(entity)) {
+        if let (Ok(history), Ok(history_state)) = (q_history.get(entity), q_history_state.get(entity)) {
             found_next = true;
             match history {
                 History::Shallow => {
@@ -509,7 +509,7 @@ pub fn get_all_leaf_states(
             }
         }
         // 3) If it has a single initial state, explore that.
-        else if let Ok(initial_state) = initial_state_query.get(entity) {
+        else if let Ok(initial_state) = q_initial_state.get(entity) {
             found_next = true;
 
             // To enter a deeply nested initial state, we must first enter all of its parents
