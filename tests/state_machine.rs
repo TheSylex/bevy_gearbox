@@ -475,8 +475,8 @@ fn history_deep_restores_exact_leaves() {
     app.world_mut().entity_mut(a).insert(InitialState(a1));
 
     // Outside Z and edges to go out/in
-    #[derive(SimpleTransition, EntityEvent, Clone)] struct Out { #[event_target] target: Entity }; 
-    #[derive(SimpleTransition, EntityEvent, Clone)] struct Back { #[event_target] target: Entity };
+    #[derive(SimpleTransition, EntityEvent, Clone)] struct Out { #[event_target] target: Entity }
+    #[derive(SimpleTransition, EntityEvent, Clone)] struct Back { #[event_target] target: Entity }
     app.add_transition_event::<Out>();
     app.add_transition_event::<Back>();
     let z = app.world_mut().spawn_empty().id();
@@ -761,7 +761,7 @@ fn state_inactive_component_removes_on_enter_restores_on_exit() {
     assert!(app.world().get::<Bar>(root).is_none());
 
     // Transition S->T
-    #[derive(SimpleTransition, EntityEvent, Clone)] struct Go { #[event_target] target: Entity };
+    #[derive(SimpleTransition, EntityEvent, Clone)] struct Go { #[event_target] target: Entity }
     app.add_transition_event::<Go>();
     app.world_mut().spawn((Source(s), Target(t), EventEdge::<Go>::default()));
     app.world_mut().commands().trigger(Go { target: root });
