@@ -343,7 +343,7 @@ pub enum ResetScope { #[default] Source, Target, Both }
 /// On EnterState(source), evaluate AlwaysEdge transitions listed in `Transitions(source)` in order.
 /// Respects After components - transitions with After will be handled by the timer system instead.
 pub fn always_edge_listener(
-    trigger: On<EnterState>,
+    enter_state: On<EnterState>,
     q_transitions: Query<&Transitions>,
     q_always: Query<(), With<AlwaysEdge>>,
     q_edge_target: Query<&Target>,
@@ -352,7 +352,7 @@ pub fn always_edge_listener(
     q_child_of: Query<&StateChildOf>,
     mut commands: Commands,
 ){
-    let source = trigger.event().event_target();
+    let source = enter_state.event().event_target();
     let Ok(transitions) = q_transitions.get(source) else { return; };
 
     // Evaluate in order; fire the first allowed transition
@@ -394,7 +394,7 @@ fn find_parallel_region_root(
 
 /// On event `E`, scan `Transitions` for a matching edge with `EventEdge<E>`, in priority order.
 fn edge_event_listener<E: TransitionEvent + Clone>(
-    trigger: On<E>,
+    transition_event: On<E>,
     q_transitions: Query<&Transitions>,
     q_listener: Query<&EventEdge<E>>, 
     q_edge_target: Query<&Target>,
@@ -408,11 +408,11 @@ fn edge_event_listener<E: TransitionEvent + Clone>(
     mut q_timer: Query<&mut EdgeTimer>,
     mut commands: Commands,
 ) {
-    let event = trigger.event();
+    let event = transition_event.event();
     
     // If the event target is a machine root, try leaves/branches first (statechart-like), then fall back to root
-    if let Ok(current) = q_sm.get(trigger.event().event_target()) {
-        let machine_root = trigger.event().event_target();
+    if let Ok(current) = q_sm.get(transition_event.event().event_target()) {
+        let machine_root = transition_event.event().event_target();
         let mut visited: HashSet<Entity> = HashSet::new();
         let mut fired_regions: HashSet<Entity> = HashSet::new();
 
@@ -443,7 +443,7 @@ fn edge_event_listener<E: TransitionEvent + Clone>(
     }
 
     // Otherwise, evaluate on the targeted state directly
-    let source = trigger.event().event_target();
+    let source = transition_event.event().event_target();
     try_fire_first_matching_edge(
         source, event, &q_transitions, &q_listener, &q_edge_target,
         &q_guards, &q_child_of, &mut q_defer, &q_active, 
@@ -556,13 +556,13 @@ pub fn check_always_on_guards_changed(
 
 /// On EnterState(source), start timers for any After edges.
 pub fn start_after_on_enter(
-    trigger: On<EnterState>,
+    enter_state: On<EnterState>,
     q_transitions: Query<&Transitions>,
     q_after: Query<&After>,
     q_always: Query<(), With<AlwaysEdge>>,
     mut commands: Commands,
 ) {
-    let source = trigger.event().event_target();
+    let source = enter_state.event().event_target();
     let Ok(transitions) = q_transitions.get(source) else { return; };
     for edge in transitions.into_iter().copied() {
         if q_after.get(edge).is_ok() && q_always.get(edge).is_ok() {
@@ -574,12 +574,12 @@ pub fn start_after_on_enter(
 
 /// On ExitState(source), cancel timers for any After edges.
 pub fn cancel_after_on_exit(
-    trigger: On<crate::ExitState>,
+    exit_state: On<crate::ExitState>,
     q_transitions: Query<&Transitions>,
     q_after: Query<&After>,
     mut commands: Commands,
 ) {
-    let source = trigger.event().event_target();
+    let source = exit_state.event().event_target();
     let Ok(transitions) = q_transitions.get(source) else { return; };
     for edge in transitions.into_iter().copied() {
         if q_after.get(edge).is_ok() {
@@ -590,13 +590,13 @@ pub fn cancel_after_on_exit(
 
 /// During TransitionActions, if an edge has ResetEdge, emit ResetSubtree for its scope
 pub(crate) fn reset_on_transition_actions(
-    trigger: On<crate::TransitionActions>,
+    transition_action: On<crate::TransitionActions>,
     q_reset_edge: Query<&ResetEdge>,
     q_edge: Query<(&Source, &Target)>,
     q_children: Query<&crate::StateChildren>,
     mut commands: Commands,
 ) {
-    let edge = trigger.event().event_target();
+    let edge = transition_action.event().event_target();
     let Ok(reset) = q_reset_edge.get(edge) else { return; };
     
     let Ok((Source(source), Target(target))) = q_edge.get(edge) else { return; };
@@ -628,7 +628,7 @@ pub(crate) fn reset_on_transition_actions(
 /// Tick After timers and fire the first due transition per active source, respecting Transitions order.
 pub fn tick_after_system(
     time: Res<Time>,
-    sources_with_transitions: Query<(Entity, &Transitions), With<Active>>, // active source states only
+    q_transitions: Query<(Entity, &Transitions), With<Active>>, // active source states only
     mut q_timer: Query<&mut EdgeTimer>,
     q_after: Query<&After>,
     q_always: Query<(), With<AlwaysEdge>>,
@@ -637,7 +637,7 @@ pub fn tick_after_system(
     q_child_of: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
-    for (source, transitions) in sources_with_transitions.iter() {
+    for (source, transitions) in q_transitions.iter() {
         // Walk edges in priority order; fire first eligible
         for edge in transitions.into_iter().copied() {
             if q_after.get(edge).is_err() { continue; }
@@ -666,14 +666,14 @@ pub fn tick_after_system(
 
 /// Generic system to replay deferred event when a state exits.
 pub fn replay_deferred_event<E: EntityEvent + Clone>(
-    trigger: On<ExitState>,
+    exit_state: On<ExitState>,
     mut q_defer: Query<&mut DeferEvent<E>>,
     mut commands: Commands,
 )
 where
     for<'a> <E as Event>::Trigger<'a>: Default,
 {
-    let exited_state = trigger.event().event_target();
+    let exited_state = exit_state.event().event_target();
 
     if let Ok(mut defer_event) = q_defer.get_mut(exited_state) {
         if let Some(deferred) = defer_event.take_deferred() {
@@ -732,12 +732,12 @@ pub fn tick_after_event_timers<E: TransitionEvent + Clone + 'static>(
 
 /// Cancel a pending delayed event for a source when it exits
 pub fn cancel_pending_event_on_exit<E: EntityEvent + Clone + 'static>(
-    trigger: On<ExitState>,
+    exit_state: On<ExitState>,
     q_transitions: Query<&Transitions>,
     q_pending: Query<&PendingEvent<E>>,
     mut commands: Commands,
 ){
-    let source = trigger.event().event_target();
+    let source = exit_state.event().event_target();
     let Ok(transitions) = q_transitions.get(source) else { return; };
     for &edge in transitions.into_iter() {
         if q_pending.get(edge).is_ok() {

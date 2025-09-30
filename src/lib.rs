@@ -192,7 +192,7 @@ impl ResetRegion {
 /// to the appropriate states, and updates the machine's `CurrentState`.
 /// Also handles history state saving and restoration.
 fn transition_observer<T: transitions::PhasePayload>(
-    trigger: On<Transition<T>>,
+    transition: On<Transition<T>>,
     mut q_sm: Query<&mut StateMachine>,
     q_parallel: Query<&Parallel>,
     q_children: Query<&StateChildren>,
@@ -204,13 +204,13 @@ fn transition_observer<T: transitions::PhasePayload>(
     q_kind: Query<&transitions::EdgeKind>,
     mut commands: Commands,
 ) {
-    let machine_entity = trigger.event().machine;
-    let source_state = trigger.event().source;
+    let machine_entity = transition.event().machine;
+    let source_state = transition.event().source;
     // Resolve target: prefer Target on the edge; otherwise treat the edge itself
     // as the super state to start from (useful for root init where initial is on the state).
-    let new_super_state = match q_edge_target.get(trigger.event().edge) {
+    let new_super_state = match q_edge_target.get(transition.event().edge) {
         Ok(edge_target) => edge_target.0,
-        Err(_) => trigger.event().edge,
+        Err(_) => transition.event().edge,
     };
 
     let Ok(mut current_state) = q_sm.get_mut(machine_entity) else {
@@ -288,7 +288,7 @@ fn transition_observer<T: transitions::PhasePayload>(
 
         let lca_entity = if lca_depth > 0 { Some(exit_path_from_source[exit_path_from_source.len() - lca_depth]) } else { None };
 
-        let is_internal = matches!(q_kind.get(trigger.event().edge), Ok(transitions::EdgeKind::Internal));
+        let is_internal = matches!(q_kind.get(transition.event().edge), Ok(transitions::EdgeKind::Internal));
         if !is_internal {
             // If source is the LCA, default external re-enters the source
             if lca_entity == Some(source_state) {
@@ -319,7 +319,7 @@ fn transition_observer<T: transitions::PhasePayload>(
         }
 
         let enter_path = get_path_to_root(new_super_state, &q_child_of);
-        let is_internal = matches!(q_kind.get(trigger.event().edge), Ok(transitions::EdgeKind::Internal));
+        let is_internal = matches!(q_kind.get(transition.event().edge), Ok(transitions::EdgeKind::Internal));
 
         // Build ordered exits by walking each leaf up to (but not including) the LCA with the target path
         let mut ordered_exits: Vec<Entity> = Vec::new();
@@ -365,7 +365,7 @@ fn transition_observer<T: transitions::PhasePayload>(
     };
 
     // Invoke typed Exit payload once at the start (root + source)
-    trigger.event().payload.on_exit(&mut commands, source_state, &q_children, &current_state);
+    transition.event().payload.on_exit(&mut commands, source_state, &q_children, &current_state);
     for entity in states_to_exit_vec.iter() {
         // Save history if this state has history behavior
         if let Ok(history) = q_history.get(*entity) {
@@ -420,8 +420,8 @@ fn transition_observer<T: transitions::PhasePayload>(
     }
 
     // Transition actions phase (between exits and entries)
-    commands.trigger(TransitionActions(trigger.event().edge));
-    trigger.event().payload.on_effect(&mut commands, trigger.event().edge, &q_children, &current_state);
+    commands.trigger(TransitionActions(transition.event().edge));
+    transition.event().payload.on_effect(&mut commands, transition.event().edge, &q_children, &current_state);
     // Invoke typed Effect payload if present
     // Note: we avoid trait bounds here; user code can downcast payload if desired via helper
 
@@ -443,7 +443,7 @@ fn transition_observer<T: transitions::PhasePayload>(
     );
     current_state.active_leaves.extend(new_leaf_states);
     // Invoke typed Entry payload
-    trigger.event().payload.on_entry(&mut commands, new_super_state, &q_children, &current_state);
+    transition.event().payload.on_entry(&mut commands, new_super_state, &q_children, &current_state);
     // Derive full active set from leaves
     current_state.active = compute_active_from_leaves(&current_state.active_leaves, &q_child_of);
 }
@@ -553,21 +553,21 @@ fn compute_active_from_leaves(
 
 /// Triggers the InitializeMachine event when AbilityMachine component is added.
 fn initialize_state_machine(
-    trigger: On<Add, StateMachine>,
+    add: On<Add, StateMachine>,
     mut commands: Commands,
 ) {
-    let target = trigger.event().entity;
+    let target = add.event().entity;
     // Always attempt to initialize: root-as-leaf, parallel, or parent with InitialState
     commands.trigger(Transition { machine: target, source: target, edge: target, payload: () });
 }
 
 /// Resets a machine by clearing Active components under the root and re-inserting StateMachine
 fn reset_state_region(
-    trigger: On<ResetRegion>,
+    reset_region: On<ResetRegion>,
     mut commands: Commands,
     q_children: Query<&StateChildren>,
 ) {
-    let root = trigger.event().event_target();
+    let root = reset_region.event().event_target();
 
     for child in q_children.iter_descendants(root) {
         commands.entity(child).remove::<Active>().insert(Inactive);

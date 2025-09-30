@@ -95,20 +95,20 @@ fn transitions_priority_first_match_wins() {
 #[derive(Resource, Default, Debug)]
 struct OrderLog(Vec<String>);
 
-fn log_enter(trigger: On<EnterState>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
-    if let Ok(name) = names.get(trigger.event().event_target()) {
+fn log_enter(enter_state: On<EnterState>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
+    if let Ok(name) = names.get(enter_state.event().event_target()) {
         log.0.push(format!("enter:{}", name.as_str()));
     }
 }
 
-fn log_exit(trigger: On<ExitState>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
-    if let Ok(name) = names.get(trigger.event().event_target()) {
+fn log_exit(exit_state: On<ExitState>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
+    if let Ok(name) = names.get(exit_state.event().event_target()) {
         log.0.push(format!("exit:{}", name.as_str()));
     }
 }
 
-fn log_actions(trigger: On<TransitionActions>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
-    if let Ok(name) = names.get(trigger.event().event_target()) {
+fn log_actions(transition_action: On<TransitionActions>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
+    if let Ok(name) = names.get(transition_action.event().event_target()) {
         log.0.push(format!("actions:{}", name.as_str()));
     }
 }
@@ -714,8 +714,8 @@ fn reset_machine_reinitializes() {
 #[derive(Component, Default)]
 struct WasReset;
 
-fn mark_reset(trigger: On<Reset>, mut commands: Commands) {
-    commands.entity(trigger.event().event_target()).insert(WasReset);
+fn mark_reset(reset: On<Reset>, mut commands: Commands) {
+    commands.entity(reset.event().event_target()).insert(WasReset);
 }
 
 #[test]
