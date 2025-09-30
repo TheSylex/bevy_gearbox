@@ -23,7 +23,7 @@ fn bridge_chart_to_bevy_state<S: States + FreelyMutableState + Component + Clone
     mut next: ResMut<NextState<S>>,
     q_state: Query<&S>,
 ) {
-    let target = enter_state.event().event_target();
+    let target = enter_state.target;
     if let Ok(s) = q_state.get(target) {
         next.set(s.clone());
     }

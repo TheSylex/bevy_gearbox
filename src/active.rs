@@ -14,7 +14,7 @@ pub(crate) fn add_active(
     enter_state: On<EnterState>,
     mut commands: Commands,
 ) {
-    let target = enter_state.event().event_target();
+    let target = enter_state.target;
     commands.queue(move |world: &mut World| {
         let root = world.query::<&StateChildOf>().query(world).root_ancestor(target);
         let Some(state_machine) = world.entity(root).get::<StateMachine>() else { return; };
@@ -28,7 +28,7 @@ pub(crate) fn add_inactive(
     exit_state: On<ExitState>,
     mut commands: Commands,
 ) {
-    let target = exit_state.event().event_target();
+    let target = exit_state.target;
     commands.queue(move |world: &mut World| {
         let root = world.query::<&StateChildOf>().query(world).root_ancestor(target);
         let Some(state_machine) = world.entity(root).get::<StateMachine>() else { return; };

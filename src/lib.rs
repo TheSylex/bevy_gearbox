@@ -117,7 +117,7 @@ pub struct Transition<T = ()> where T: Clone + Send + Sync + 'static {
 }
 
 #[derive(EntityEvent, Reflect)]
-pub struct TransitionActions { #[event_target] target: Entity }
+pub struct TransitionActions { #[event_target] pub target: Entity }
 
 /// A marker component for a state that has parallel (orthogonal) regions.
 /// When a state with this component is entered, the machine will simultaneously enter
@@ -173,15 +173,15 @@ impl StateMachine {
 
 /// An event that is triggered on a state entity when it is being entered.
 #[derive(EntityEvent, Reflect)]
-pub struct EnterState { #[event_target] target: Entity }
+pub struct EnterState { #[event_target] pub target: Entity }
 
 /// An event that is triggered on a state entity when it is being exited.
 #[derive(EntityEvent, Reflect)]
-pub struct ExitState { #[event_target] target: Entity }
+pub struct ExitState { #[event_target] pub target: Entity }
 
 /// Event to reset a state machine: clear Active flags under the root and reinitialize
 #[derive(EntityEvent, Reflect)]
-pub struct ResetRegion { #[event_target] target: Entity }
+pub struct ResetRegion { #[event_target] pub target: Entity }
 
 impl ResetRegion {
     pub fn new(entity: Entity) -> Self { Self { target: entity } }
@@ -567,7 +567,7 @@ fn reset_state_region(
     mut commands: Commands,
     q_children: Query<&StateChildren>,
 ) {
-    let root = reset_region.event().event_target();
+    let root = reset_region.target;
 
     for child in q_children.iter_descendants(root) {
         commands.entity(child).remove::<Active>().insert(Inactive);

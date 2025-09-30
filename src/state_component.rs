@@ -118,7 +118,7 @@ impl StateComponentAppExt for App {
 
 /// Event to reset a subtree rooted at the target entity.
 #[derive(EntityEvent, Reflect)]
-pub struct Reset { #[event_target] target: Entity }
+pub struct Reset { #[event_target] pub target: Entity }
 
 impl Reset {
     pub fn new(entity: Entity) -> Self {

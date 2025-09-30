@@ -60,6 +60,7 @@ When manually building state machines through commands it is important to add th
 
 | Crate               | Version | Bevy |
 |---------------------|---------|------|
+| bevy_gearbox/editor | 0.3.4   | 0.17 |
 | bevy_gearbox        | 0.3.3   | 0.16 |
 | bevy_gearbox_editor | 0.3.3   | 0.16 |
 

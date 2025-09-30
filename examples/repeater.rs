@@ -140,7 +140,7 @@ fn reset_repeater_on_cast(
     exit_state: On<ExitState>,
     mut q_repeater: Query<&mut Repeater>,
 ) {
-    let target = exit_state.event().event_target();
+    let target = exit_state.target;
     if let Ok(mut repeater) = q_repeater.get_mut(target) {
         repeater.remaining = 5;
         repeater.timer.reset();
@@ -149,7 +149,7 @@ fn reset_repeater_on_cast(
 
 /// A debug system to print a message every time any state is entered.
 fn print_enter_state_messages(enter_state: On<EnterState>, query: Query<&Name>) {
-    if let Ok(name) = query.get(enter_state.event().event_target()) {
+    if let Ok(name) = query.get(enter_state.target) {
         println!("[STATE ENTERED]: {}", name);
     }
 }

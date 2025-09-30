@@ -41,12 +41,6 @@ fn init_enters_initial_chain_and_sets_active_sets() {
 #[derive(SimpleTransition, EntityEvent, Clone)]
 struct TestEvt { #[event_target] target: Entity }
 
-impl TestEvt {
-    fn new(entity: Entity) -> Self {
-        Self { target: entity }
-    }
-}
-
 #[test]
 fn transitions_priority_first_match_wins() {
     let mut app = test_app();
@@ -96,19 +90,19 @@ fn transitions_priority_first_match_wins() {
 struct OrderLog(Vec<String>);
 
 fn log_enter(enter_state: On<EnterState>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
-    if let Ok(name) = names.get(enter_state.event().event_target()) {
+    if let Ok(name) = names.get(enter_state.target) {
         log.0.push(format!("enter:{}", name.as_str()));
     }
 }
 
 fn log_exit(exit_state: On<ExitState>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
-    if let Ok(name) = names.get(exit_state.event().event_target()) {
+    if let Ok(name) = names.get(exit_state.target) {
         log.0.push(format!("exit:{}", name.as_str()));
     }
 }
 
 fn log_actions(transition_action: On<TransitionActions>, names: Query<&Name>, mut log: ResMut<OrderLog>) {
-    if let Ok(name) = names.get(transition_action.event().event_target()) {
+    if let Ok(name) = names.get(transition_action.target) {
         log.0.push(format!("actions:{}", name.as_str()));
     }
 }
@@ -715,7 +709,7 @@ fn reset_machine_reinitializes() {
 struct WasReset;
 
 fn mark_reset(reset: On<Reset>, mut commands: Commands) {
-    commands.entity(reset.event().event_target()).insert(WasReset);
+    commands.entity(reset.target).insert(WasReset);
 }
 
 #[test]
