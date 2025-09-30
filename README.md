@@ -52,6 +52,10 @@ commands.trigger_targets(YourEvent, machine_root);
 - Spawn states and edges with `Source`, `Target`, `EdgeKind`, `EventEdge<E>`, `AlwaysEdge`, `After`.
 - Or load a scene authored with [`bevy_gearbox_editor`](https://github.com/DEMIURGE-studio/bevy_gearbox_editor).
 
+# !!! FOOTGUN ALERT !!!
+
+When manually building state machines through commands it is important to add the StateMachine component to your root last. This initializes the machine, and if you don't add the StateMachine to the root after you've added all your InitialState components to other state entities, it will not initialize correctly. The proper "layout" for building statechart entities is demonstrated in the repeater example. This is not a problem if you use a scene to spawn your statechart. You can author statechart scenes using the [editor](https://github.com/DEMIURGE-studio/bevy_gearbox_editor). In the future this will be solved by building state machines through bsn.
+
 ## Compatibility
 
 | Crate               | Version | Bevy |
