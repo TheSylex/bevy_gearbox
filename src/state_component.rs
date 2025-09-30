@@ -21,7 +21,7 @@ pub fn state_component_enter<T: Component<Mutability = Mutable> + Clone>(
     q_child_of: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
-    let entered_state = enter_state.event().0;
+    let entered_state = enter_state.target;
     let Ok(insert_component) = q_state_component.get(entered_state) else {
         return;
     };
@@ -41,7 +41,7 @@ pub fn state_component_exit<T: Component>(
     q_child_of: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
-    let exited_state = exit_state.event().0;
+    let exited_state = exit_state.target;
     if !q_state_component.contains(exited_state) {
         return;
     };
@@ -61,7 +61,7 @@ pub fn state_inactive_component_enter<T: Component + Clone>(
     q_child_of: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
-    let entered_state = enter_state.event().0;
+    let entered_state = enter_state.target;
     if !q_state_inactive_component.contains(entered_state) {
         return;
     };
@@ -77,12 +77,12 @@ pub fn state_inactive_component_enter<T: Component + Clone>(
 /// when a state with `StateInactiveComponent<T>` is exited, using the stored clone.
 pub fn state_inactive_component_exit<T: Component + Clone>(
     exit_state: On<ExitState>,
-    query: Query<&StateInactiveComponent<T>>,
+    q_state_inactive_component: Query<&StateInactiveComponent<T>>,
     q_child_of: Query<&StateChildOf>,
     mut commands: Commands,
 ) {
-    let exited_state = exit_state.event().0;
-    let Ok(remove_component) = query.get(exited_state) else {
+    let exited_state = exit_state.target;
+    let Ok(remove_component) = q_state_inactive_component.get(exited_state) else {
         return;
     };
 
@@ -118,10 +118,10 @@ impl StateComponentAppExt for App {
 
 /// Event to reset a subtree rooted at the target entity.
 #[derive(EntityEvent, Reflect)]
-pub struct Reset(Entity);
+pub struct Reset { #[event_target] target: Entity }
 
 impl Reset {
     pub fn new(entity: Entity) -> Self {
-        Self(entity)
+        Self { target: entity }
     }
 }

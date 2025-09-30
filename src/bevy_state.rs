@@ -1,5 +1,5 @@
 use bevy::{prelude::*, state::state::FreelyMutableState};
-use crate::{EnterState, StateMachine};
+use crate::EnterState;
 
 /// Bridge a Gearbox chart's EnterState events to Bevy `States`,
 /// setting `NextState<S>` when a chart node carrying `S` is entered.

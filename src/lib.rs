@@ -117,7 +117,7 @@ pub struct Transition<T = ()> where T: Clone + Send + Sync + 'static {
 }
 
 #[derive(EntityEvent, Reflect)]
-pub struct TransitionActions(Entity);
+pub struct TransitionActions { #[event_target] target: Entity }
 
 /// A marker component for a state that has parallel (orthogonal) regions.
 /// When a state with this component is entered, the machine will simultaneously enter
@@ -173,18 +173,18 @@ impl StateMachine {
 
 /// An event that is triggered on a state entity when it is being entered.
 #[derive(EntityEvent, Reflect)]
-pub struct EnterState(Entity);
+pub struct EnterState { #[event_target] target: Entity }
 
 /// An event that is triggered on a state entity when it is being exited.
 #[derive(EntityEvent, Reflect)]
-pub struct ExitState(Entity);
+pub struct ExitState { #[event_target] target: Entity }
 
 /// Event to reset a state machine: clear Active flags under the root and reinitialize
 #[derive(EntityEvent, Reflect)]
-pub struct ResetRegion(Entity);
+pub struct ResetRegion { #[event_target] target: Entity }
 
 impl ResetRegion {
-    pub fn new(entity: Entity) -> Self { Self(entity) }
+    pub fn new(entity: Entity) -> Self { Self { target: entity } }
 }
 
 /// The core system that observes `Transition` events and orchestrates the state change.
@@ -220,7 +220,7 @@ fn transition_observer<T: transitions::PhasePayload>(
     // Handle initialization case where there are no current active states
     if current_state.active_leaves.is_empty() {
         // Enter the machine root first, then all ancestors from root→target
-        commands.trigger(EnterState(machine_entity));
+        commands.trigger(EnterState { target: machine_entity });
 
         // Build path from target up to (but excluding) the machine root
         let mut path_to_target: Vec<Entity> = vec![new_super_state];
@@ -232,7 +232,7 @@ fn transition_observer<T: transitions::PhasePayload>(
 
         // Enter ancestors parent→child down to the target
         for entity in path_to_target.iter().rev() {
-            commands.trigger(EnterState(*entity));
+            commands.trigger(EnterState { target: *entity });
         }
 
         let new_leaf_states = get_all_leaf_states(
@@ -409,7 +409,7 @@ fn transition_observer<T: transitions::PhasePayload>(
             }
         }
         
-        commands.trigger(ExitState(*entity));
+        commands.trigger(ExitState { target: *entity });
     }
 
     // Update the current state set
@@ -420,14 +420,14 @@ fn transition_observer<T: transitions::PhasePayload>(
     }
 
     // Transition actions phase (between exits and entries)
-    commands.trigger(TransitionActions(transition.event().edge));
+    commands.trigger(TransitionActions { target: transition.event().edge });
     transition.event().payload.on_effect(&mut commands, transition.event().edge, &q_children, &current_state);
     // Invoke typed Effect payload if present
     // Note: we avoid trait bounds here; user code can downcast payload if desired via helper
 
     // Enter from parent to child
     for entity in states_to_enter_vec.iter().rev() {
-        commands.trigger(EnterState(*entity));
+        commands.trigger(EnterState { target: *entity });
     }
 
     // Now, from the entered super state, drill down to the new leaf states.
@@ -477,7 +477,7 @@ pub fn get_all_leaf_states(
             match history {
                 History::Shallow => {
                     for &saved_state in &history_state.0 {
-                        commands.trigger(EnterState(saved_state));
+                        commands.trigger(EnterState { target: saved_state });
                         stack.push(saved_state);
                     }
                 }
@@ -490,7 +490,7 @@ pub fn get_all_leaf_states(
                                 .take_while(|&ancestor| ancestor != entity),
                         );
                         for e in path_to_substate.iter().rev() {
-                            commands.trigger(EnterState(*e));
+                            commands.trigger(EnterState { target: *e });
                         }
                         leaves.insert(saved_state);
                     }
@@ -503,7 +503,7 @@ pub fn get_all_leaf_states(
             if let Ok(children) = q_children.get(entity) {
                 found_next = true;
                 for &child in children {
-                    commands.trigger(EnterState(child));
+                    commands.trigger(EnterState { target: child });
                     stack.push(child);
                 }
             }
@@ -523,7 +523,7 @@ pub fn get_all_leaf_states(
 
             // Enter from parent to child
             for e in path_to_substate.iter().rev() {
-                commands.trigger(EnterState(*e));
+                commands.trigger(EnterState { target: *e });
             }
 
             stack.push(initial_state.0);
@@ -571,7 +571,7 @@ fn reset_state_region(
 
     for child in q_children.iter_descendants(root) {
         commands.entity(child).remove::<Active>().insert(Inactive);
-        commands.trigger(ResetRegion(child));
+        commands.trigger(ResetRegion { target: child });
     }
 
     commands.entity(root).remove::<StateMachine>().insert(StateMachine::new());

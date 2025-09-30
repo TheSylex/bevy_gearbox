@@ -37,11 +37,11 @@ struct Repeater {
 
 // --- Event to trigger state transitions ---
 #[derive(SimpleTransition, EntityEvent, Clone)]
-struct CastAbility(Entity);
+struct CastAbility { #[event_target] target: Entity }
 
 /// An event fired by a state when its internal logic has completed.
 #[derive(SimpleTransition, EntityEvent, Clone)]
-struct OnComplete(Entity);
+struct OnComplete { #[event_target] target: Entity }
 
 /// Creates the ability state machine hierarchy.
 fn setup(mut commands: Commands) {
@@ -103,7 +103,7 @@ fn input_system(
     // Press 'C' to cast or reset the ability.
     if keyboard_input.just_pressed(KeyCode::KeyC) {
         println!("\n--- 'C' Pressed: Sending CastAbility event! ---");
-        commands.trigger(CastAbility(machine));
+        commands.trigger(CastAbility { target: machine });
     }
 }
 
@@ -129,7 +129,7 @@ fn repeater_system(
                 // The repeater is done. Fire the `OnComplete` event on the `Repeating`
                 // state entity. The `EventEdge` on that entity will handle
                 // transitioning back to the `Ready` state.
-                commands.trigger(OnComplete(root_entity));
+                commands.trigger(OnComplete { target: root_entity });
             }
         }
     }
