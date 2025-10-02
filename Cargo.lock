@@ -662,7 +662,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_gearbox"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "bevy",
  "bevy_gearbox_macros",
