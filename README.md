@@ -56,14 +56,6 @@ commands.trigger_targets(YourEvent, machine_root);
 
 When manually building state machines through commands it is important to add the StateMachine component to your root last. This initializes the machine, and if you don't add the StateMachine to the root after you've added all your InitialState components to other state entities, it will not initialize correctly. The proper "layout" for building statechart entities is demonstrated in the repeater example. This is not a problem if you use a scene to spawn your statechart. You can author statechart scenes using the [editor](https://github.com/DEMIURGE-studio/bevy_gearbox_editor). In the future this will be solved by building state machines through bsn.
 
-## Compatibility
-
-| Crate               | Version | Bevy |
-|---------------------|---------|------|
-| bevy_gearbox/editor | 0.3.4   | 0.17 |
-| bevy_gearbox        | 0.3.3   | 0.16 |
-| bevy_gearbox_editor | 0.3.3   | 0.16 |
-
 ## License
 
 Dual-licensed under MIT or Apache-2.0, at your option.
