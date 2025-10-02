@@ -571,7 +571,6 @@ fn reset_state_region(
 
     for child in q_children.iter_descendants(root) {
         commands.entity(child).remove::<Active>().insert(Inactive);
-        commands.trigger(ResetRegion { target: child });
     }
 
     commands.entity(root).remove::<StateMachine>().insert(StateMachine::new());
