@@ -139,9 +139,9 @@ pub struct InitialState(#[entities] pub Entity);
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct StateMachine {
-    #[entities]
+    #[reflect(ignore)] #[entities]
     pub active: HashSet<Entity>,
-    #[entities]
+    #[reflect(ignore)] #[entities]
     pub active_leaves: HashSet<Entity>,
 }
 
