@@ -45,9 +45,6 @@ struct TestEvt { #[event_target] target: Entity }
 fn transitions_priority_first_match_wins() {
     let mut app = test_app();
 
-    // Register event listener observer for TestEvt
-    app.add_transition_event::<TestEvt>();
-
     // Build hierarchy: root has children S, T1, T2. Initial is S
     let root = app.world_mut().spawn_empty().id();
     let s = app.world_mut().spawn_empty().id();
@@ -115,7 +112,6 @@ fn lifecycle_exit_then_transition_actions_then_enter_ordering() {
     app.add_observer(log_enter);
     app.add_observer(log_exit);
     app.add_observer(log_actions);
-    app.add_transition_event::<TestEvt>();
 
     // root children: A, C; A child: B (initial)
     let root = app.world_mut().spawn((Name::new("root"),)).id();
@@ -157,7 +153,6 @@ struct EvtP1 { #[event_target] target: Entity }
 #[test]
 fn events_root_propagation_one_per_parallel_region() {
     let mut app = test_app();
-    app.add_transition_event::<EvtP1>();
 
     // Build root -> P(parallel)
     let root = app.world_mut().spawn_empty().id();
@@ -212,9 +207,6 @@ struct EvtGoBack { #[event_target] target: Entity }
 fn history_shallow_saves_immediate_children_under_parallel_and_restores() {
     let mut app = test_app();
 
-    app.add_transition_event::<EvtGoOut>();
-    app.add_transition_event::<EvtGoBack>();
-
     // root -> P(parallel, shallow history) -> regions R1,R2 with leaves A,B
     let root = app.world_mut().spawn_empty().id();
     let p = app.world_mut().spawn((Parallel, History::Shallow)).id();
@@ -264,7 +256,6 @@ fn defer_defers_when_active_and_replays_on_exit_without_consuming_region() {
     app.init_resource::<OrderLog>();
 
     // Add systems needed for defer: listener and replay
-    app.add_transition_event::<EvtDefer>();
     app.add_observer(replay_deferred_event::<EvtDefer>);
 
     // root children: S (with DeferEvent<EvtDefer>), T
@@ -321,7 +312,6 @@ fn state_component_adds_on_enter_removes_on_exit() {
     // Transition to sibling T to exit S
     #[derive(SimpleTransition, EntityEvent, Clone)]
     struct Go { #[event_target] target: Entity }
-    app.add_transition_event::<Go>();
     let t = app.world_mut().spawn_empty().id();
     app.world_mut().entity_mut(t).insert(StateChildOf(root));
     app.world_mut().spawn((Source(s), Target(t), EventEdge::<Go>::default()));
@@ -335,7 +325,6 @@ fn state_component_adds_on_enter_removes_on_exit() {
 #[test]
 fn transitions_external_vs_internal_lca_reentry() {
     let mut app = test_app();
-    app.add_transition_event::<TestEvt>();
     app.insert_resource(OrderLog::default());
     app.add_observer(log_enter);
     app.add_observer(log_exit);
@@ -370,7 +359,6 @@ fn transitions_external_vs_internal_lca_reentry() {
 #[test]
 fn transitions_ignored_when_missing_target() {
     let mut app = test_app();
-    app.add_transition_event::<TestEvt>();
 
     let root = app.world_mut().spawn_empty().id();
     let s = app.world_mut().spawn_empty().id();
@@ -471,8 +459,6 @@ fn history_deep_restores_exact_leaves() {
     // Outside Z and edges to go out/in
     #[derive(SimpleTransition, EntityEvent, Clone)] struct Out { #[event_target] target: Entity }
     #[derive(SimpleTransition, EntityEvent, Clone)] struct Back { #[event_target] target: Entity }
-    app.add_transition_event::<Out>();
-    app.add_transition_event::<Back>();
     let z = app.world_mut().spawn_empty().id();
     app.world_mut().entity_mut(z).insert(StateChildOf(root));
     app.world_mut().spawn((Source(p), Target(z), EventEdge::<Out>::default()));
@@ -497,7 +483,6 @@ struct EvtDelayed { #[event_target] target: Entity }
 #[test]
 fn event_after_does_not_auto_fire_without_event() {
     let mut app = test_app();
-    app.add_transition_event::<EvtDelayed>();
 
     // States: root -> { s, t }; initial: s
     let root = app.world_mut().spawn_empty().id();
@@ -530,7 +515,6 @@ fn event_after_does_not_auto_fire_without_event() {
 #[test]
 fn event_after_delays_and_fires() {
     let mut app = test_app();
-    app.add_transition_event::<EvtDelayed>();
 
     // States: root -> { s, t }; initial: s
     let root = app.world_mut().spawn_empty().id();
@@ -573,7 +557,6 @@ struct GoTalents { #[event_target] target: Entity }
 #[test]
 fn transitioning_parent_with_parallel_child_exits_all_descendant_leaves() {
     let mut app = test_app();
-    app.add_transition_event::<GoTalents>();
 
     // Build hierarchy mimicking InGame (non-parallel) -> Panels (parallel) with two regions -> leaves
     // and a sibling Talents leaf under InGame.
@@ -638,8 +621,6 @@ struct EvtNow { #[event_target] target: Entity }
 #[test]
 fn event_after_cancels_when_source_exits_before_timer() {
     let mut app = test_app();
-    app.add_transition_event::<EvtDelayed2>();
-    app.add_transition_event::<EvtNow>();
 
     // States: root -> { s, t, u }; initial: s
     let root = app.world_mut().spawn_empty().id();
@@ -716,7 +697,6 @@ fn mark_reset(reset: On<Reset>, mut commands: Commands) {
 fn reset_edge_triggers_scope_target() {
     let mut app = test_app();
     app.add_observer(mark_reset);
-    app.add_transition_event::<TestEvt>();
 
     let root = app.world_mut().spawn_empty().id();
     let s = app.world_mut().spawn_empty().id();
@@ -756,7 +736,6 @@ fn state_inactive_component_removes_on_enter_restores_on_exit() {
 
     // Transition S->T
     #[derive(SimpleTransition, EntityEvent, Clone)] struct Go { #[event_target] target: Entity }
-    app.add_transition_event::<Go>();
     app.world_mut().spawn((Source(s), Target(t), EventEdge::<Go>::default()));
     app.world_mut().commands().trigger(Go { target: root });
     app.update();
@@ -841,7 +820,6 @@ struct DelayedTestEvt { #[event_target] target: Entity }
 #[test]
 fn event_after_timer_respects_guards_added_during_delay() {
     let mut app = test_app();
-    app.add_transition_event::<DelayedTestEvt>();
 
     let root = app.world_mut().spawn_empty().id();
     let s = app.world_mut().spawn_empty().id();
@@ -882,7 +860,6 @@ fn event_after_timer_respects_guards_added_during_delay() {
 #[test]
 fn event_after_timer_handles_missing_target_during_delay() {
     let mut app = test_app();
-    app.add_transition_event::<DelayedTestEvt>();
 
     let root = app.world_mut().spawn_empty().id();
     let s = app.world_mut().spawn_empty().id();

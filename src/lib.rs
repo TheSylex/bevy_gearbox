@@ -14,9 +14,11 @@ pub mod state_component;
 pub mod transitions;
 pub mod bevy_state;
 
-// Re-export the derive macro and key types for convenience
+// Re-exports
 pub use bevy_gearbox_macros::SimpleTransition;
 pub use transitions::{TransitionEvent, NoEvent};
+pub use inventory;
+pub use bevy_gearbox_macros::register_transition;
 
 /// The main plugin for `bevy_gearbox`. Registers events and adds the core systems.
 pub struct GearboxPlugin;
@@ -41,8 +43,6 @@ impl Plugin for GearboxPlugin {
             .register_type::<StateChildren>()
             .register_type::<StateChildOf>()
             .register_type::<Guards>()
-            .register_type::<Active>()
-            .register_type::<Inactive>()
             .register_type::<EnterState>()
             .register_type::<ExitState>()
             .register_type::<ResetRegion>()
@@ -62,6 +62,11 @@ impl Plugin for GearboxPlugin {
             transitions::check_always_on_guards_changed,
             transitions::tick_after_system,
         ));
+
+        // Auto-register all transition events discovered via inventory
+        for installer in inventory::iter::<transitions::TransitionInstaller> {
+            (installer.install)(app);
+        }
     }
 }
 
@@ -139,9 +144,9 @@ pub struct InitialState(#[entities] pub Entity);
 #[derive(Component, Reflect, Default)]
 #[reflect(Component)]
 pub struct StateMachine {
-    #[entities]
+    #[reflect(ignore)] #[entities]
     pub active: HashSet<Entity>,
-    #[entities]
+    #[reflect(ignore)] #[entities]
     pub active_leaves: HashSet<Entity>,
 }
 

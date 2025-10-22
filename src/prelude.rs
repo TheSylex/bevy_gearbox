@@ -38,7 +38,6 @@ pub use crate::{
     transitions::AlwaysEdge,
     transitions::EdgeKind,
     transitions::EventEdge,
-    transitions::TransitionEventAppExt,
     transitions::replay_deferred_event,
     transitions::TransitionEvent,
     transitions::NoEvent,
@@ -48,6 +47,8 @@ pub use crate::{
     // Derive macros
     SimpleTransition,
 };
+
+pub use bevy_gearbox_macros::register_transition;
 
 pub use crate::parameter::{
     // Parameter components

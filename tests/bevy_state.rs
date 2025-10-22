@@ -28,7 +28,6 @@ fn bridge_sets_bevy_state_on_enter_and_updates_on_transition() {
     // Enable Bevy state and bridge for TestState
     app.init_state::<TestState>();
     app.add_state_bridge::<TestState>();
-    app.add_transition_event::<Go>();
 
     // Build a simple machine: root -> s_a (initial) and sibling s_b
     let root = app.world_mut().spawn_empty().id();
@@ -58,7 +57,6 @@ fn state_scoped_entities_are_despawned_on_exit_of_chart_state() {
     let mut app = test_app();
     app.init_state::<TestState>();
     app.add_state_bridge::<TestState>();
-    app.add_transition_event::<Go>();
 
     let root = app.world_mut().spawn_empty().id();
     let s_a = app.world_mut().spawn((TestState::A,)).id();
@@ -92,7 +90,6 @@ struct RootMarker;
 #[test]
 fn commands_helper_emits_to_marked_chart_root() {
     let mut app = test_app();
-    app.add_transition_event::<Go>();
 
     // Build root with marker and two children S -> T
     let root = app.world_mut().spawn((RootMarker,)).id();

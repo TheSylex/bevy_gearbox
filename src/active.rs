@@ -2,12 +2,10 @@ use bevy::{prelude::*, reflect::Reflect};
 
 use crate::{EnterState, ExitState, StateChildOf, StateMachine};
 
-#[derive(Component, Reflect, Default)]
-#[reflect(Component)]
+#[derive(Component, Default)]
 pub struct Active;
 
-#[derive(Component, Reflect, Default)]
-#[reflect(Component)]
+#[derive(Component, Default)]
 pub struct Inactive;
 
 pub(crate) fn add_active(
