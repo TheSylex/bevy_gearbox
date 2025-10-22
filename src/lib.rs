@@ -14,12 +14,10 @@ pub mod state_component;
 pub mod transitions;
 pub mod bevy_state;
 
-// Re-export the derive macro and key types for convenience
+// Re-exports
 pub use bevy_gearbox_macros::SimpleTransition;
 pub use transitions::{TransitionEvent, NoEvent};
-// Re-export inventory so macros can call bevy_gearbox::inventory::submit!
 pub use inventory;
-// Re-export attribute macro for downstream users
 pub use bevy_gearbox_macros::register_transition;
 
 /// The main plugin for `bevy_gearbox`. Registers events and adds the core systems.
