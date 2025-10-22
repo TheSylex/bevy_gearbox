@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::platform::collections::HashSet;
+use std::any::TypeId;
 
 use crate::StateChildren;
 use crate::{guards::Guards, EnterState, Transition, active::Active, StateChildOf, StateMachine, ExitState, Parallel};
@@ -120,6 +121,46 @@ pub trait TransitionEvent: EntityEvent + Clone {
     fn to_entry_event(&self) -> Option<Self::EntryEvent> { None }
 }
 
+/// Marker trait implemented by macros for events that are auto-registered.
+pub trait RegisteredTransitionEvent: 'static {}
+
+/// Internal resource to dedupe per-event installation.
+#[derive(Resource, Default)]
+pub struct InstalledTransitions(pub HashSet<TypeId>);
+
+/// Installer record collected via `inventory` for auto-registration of transition events.
+pub struct TransitionInstaller {
+    pub install: fn(&mut App),
+}
+
+inventory::collect!(TransitionInstaller);
+
+/// Install observers/systems for a specific transition event `E` (idempotent).
+pub fn install_transition<E>(app: &mut App)
+where
+    E: TransitionEvent + RegisteredTransitionEvent + Clone + 'static,
+    for<'a> <E as Event>::Trigger<'a>: Default,
+    for<'a> <<E as TransitionEvent>::ExitEvent as Event>::Trigger<'a>: Default,
+    for<'a> <<E as TransitionEvent>::EffectEvent as Event>::Trigger<'a>: Default,
+    for<'a> <<E as TransitionEvent>::EntryEvent as Event>::Trigger<'a>: Default,
+{
+    if !app.world().contains_resource::<InstalledTransitions>() {
+        app.insert_resource(InstalledTransitions(HashSet::new()));
+    }
+
+    let mut installed = app.world_mut().resource_mut::<InstalledTransitions>();
+    let already = !installed.0.insert(TypeId::of::<E>());
+    drop(installed);
+    if already { return; }
+
+    app.add_observer(edge_event_listener::<E>)
+        .add_observer(crate::transition_observer::<PhaseEvents<E::ExitEvent, E::EffectEvent, E::EntryEvent>>)
+        .add_systems(Update, tick_after_event_timers::<E>)
+        .add_observer(cancel_pending_event_on_exit::<E>)
+        .add_observer(replay_deferred_event::<E>);
+}
+
+
 // Note: No blanket impl for TransitionEvent to avoid conflicting impls in downstream crates.
 
 /// A typed phase payload holder built from a TransitionEvent
@@ -194,30 +235,7 @@ where
 }
 
 /// App extension to register transition event support
-pub trait TransitionEventAppExt {
-    fn add_transition_event<E: TransitionEvent + Clone + 'static>(&mut self) -> &mut Self
-    where
-        for<'a> <E as Event>::Trigger<'a>: Default,
-        for<'a> <<E as TransitionEvent>::ExitEvent as Event>::Trigger<'a>: Default,
-        for<'a> <<E as TransitionEvent>::EffectEvent as Event>::Trigger<'a>: Default,
-        for<'a> <<E as TransitionEvent>::EntryEvent as Event>::Trigger<'a>: Default;
-}
 
-impl TransitionEventAppExt for App {
-    fn add_transition_event<E: TransitionEvent + Clone + 'static>(&mut self) -> &mut Self
-    where
-        for<'a> <E as Event>::Trigger<'a>: Default,
-        for<'a> <<E as TransitionEvent>::ExitEvent as Event>::Trigger<'a>: Default,
-        for<'a> <<E as TransitionEvent>::EffectEvent as Event>::Trigger<'a>: Default,
-        for<'a> <<E as TransitionEvent>::EntryEvent as Event>::Trigger<'a>: Default,
-    {
-        self.add_observer(edge_event_listener::<E>)
-            .add_observer(crate::transition_observer::<PhaseEvents<E::ExitEvent, E::EffectEvent, E::EntryEvent>>)
-            .add_systems(Update, tick_after_event_timers::<E>)
-            .add_observer(cancel_pending_event_on_exit::<E>)
-            .add_observer(replay_deferred_event::<E>)
-    }
-}
 
 fn validate_edge_basic(
     edge: Entity,
@@ -233,7 +251,7 @@ fn validate_edge_basic(
 }
 
 /// Generic edge firing logic for TransitionEvent
-fn try_fire_first_matching_edge_generic<E: TransitionEvent + Clone>(
+fn try_fire_first_matching_edge_generic<E: TransitionEvent + RegisteredTransitionEvent + Clone>(
     source: Entity,
     event: &E,
     q_transitions: &Query<&Transitions>,
@@ -293,12 +311,12 @@ fn try_fire_first_matching_edge_generic<E: TransitionEvent + Clone>(
 #[derive(Reflect, Component)]
 #[reflect(Component)]
 #[require(EdgeKind)]
-pub struct EventEdge<E: EntityEvent> {
+pub struct EventEdge<E: EntityEvent + RegisteredTransitionEvent> {
     #[reflect(ignore)]
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityEvent> Default for EventEdge<E> {
+impl<E: EntityEvent + RegisteredTransitionEvent> Default for EventEdge<E> {
     fn default() -> Self {
         Self { _marker: PhantomData }
     }
@@ -308,17 +326,17 @@ impl<E: EntityEvent> Default for EventEdge<E> {
 /// Event of type `E` that arrive while this state is active will be stored
 /// and replayed when the state is exited.
 #[derive(Component)]
-pub struct DeferEvent<E: EntityEvent> {
+pub struct DeferEvent<E: EntityEvent + RegisteredTransitionEvent> {
     pub deferred: Option<E>,
 }
 
-impl<E: EntityEvent> Default for DeferEvent<E> {
+impl<E: EntityEvent + RegisteredTransitionEvent> Default for DeferEvent<E> {
     fn default() -> Self {
         Self { deferred: None }
     }
 }
 
-impl<E: EntityEvent> DeferEvent<E> {
+impl<E: EntityEvent + RegisteredTransitionEvent> DeferEvent<E> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -393,7 +411,7 @@ fn find_parallel_region_root(
 }
 
 /// On event `E`, scan `Transitions` for a matching edge with `EventEdge<E>`, in priority order.
-fn edge_event_listener<E: TransitionEvent + Clone>(
+fn edge_event_listener<E: TransitionEvent + RegisteredTransitionEvent + Clone>(
     transition_event: On<E>,
     q_transitions: Query<&Transitions>,
     q_listener: Query<&EventEdge<E>>, 
@@ -450,7 +468,7 @@ fn edge_event_listener<E: TransitionEvent + Clone>(
     );
 }
 
-fn try_fire_first_matching_edge<E: TransitionEvent + Clone>(
+fn try_fire_first_matching_edge<E: TransitionEvent + RegisteredTransitionEvent + Clone>(
     source: Entity,
     event: &E,
     q_transitions: &Query<&Transitions>,
@@ -471,7 +489,7 @@ fn try_fire_first_matching_edge<E: TransitionEvent + Clone>(
     )
 }
 
-fn try_fire_first_matching_edge_on_branch<E: EntityEvent + Clone + TransitionEvent>(
+fn try_fire_first_matching_edge_on_branch<E: EntityEvent + Clone + TransitionEvent + RegisteredTransitionEvent>(
     start: Entity,
     event: &E,
     machine_root: Entity,
@@ -664,7 +682,7 @@ pub fn tick_after_system(
 }
 
 /// Generic system to replay deferred event when a state exits.
-pub fn replay_deferred_event<E: EntityEvent + Clone>(
+pub fn replay_deferred_event<E: EntityEvent + RegisteredTransitionEvent + Clone>(
     exit_state: On<ExitState>,
     mut q_defer: Query<&mut DeferEvent<E>>,
     mut commands: Commands,
@@ -682,7 +700,7 @@ where
 }
 
 /// Timer system for event edges with After; fire when due
-pub fn tick_after_event_timers<E: TransitionEvent + Clone + 'static>(
+pub fn tick_after_event_timers<E: TransitionEvent + RegisteredTransitionEvent + Clone + 'static>(
     time: Res<Time>,
     mut q_timer: Query<(Entity, &mut EdgeTimer, &PendingEvent<E>), With<EventEdge<E>>>,
     q_after: Query<&After>,
@@ -730,7 +748,7 @@ pub fn tick_after_event_timers<E: TransitionEvent + Clone + 'static>(
 
 
 /// Cancel a pending delayed event for a source when it exits
-pub fn cancel_pending_event_on_exit<E: EntityEvent + Clone + 'static>(
+pub fn cancel_pending_event_on_exit<E: EntityEvent + RegisteredTransitionEvent + Clone + 'static>(
     exit_state: On<ExitState>,
     q_transitions: Query<&Transitions>,
     q_pending: Query<&PendingEvent<E>>,

@@ -17,6 +17,10 @@ pub mod bevy_state;
 // Re-export the derive macro and key types for convenience
 pub use bevy_gearbox_macros::SimpleTransition;
 pub use transitions::{TransitionEvent, NoEvent};
+// Re-export inventory so macros can call bevy_gearbox::inventory::submit!
+pub use inventory;
+// Re-export attribute macro for downstream users
+pub use bevy_gearbox_macros::register_transition;
 
 /// The main plugin for `bevy_gearbox`. Registers events and adds the core systems.
 pub struct GearboxPlugin;
@@ -62,6 +66,11 @@ impl Plugin for GearboxPlugin {
             transitions::check_always_on_guards_changed,
             transitions::tick_after_system,
         ));
+
+        // Auto-register all transition events discovered via inventory
+        for installer in inventory::iter::<transitions::TransitionInstaller> {
+            (installer.install)(app);
+        }
     }
 }
 
