@@ -12,7 +12,7 @@ categories = ["game-development", "game-engines"]
 
 [dependencies]
 bevy = { version = "0.17", default-features = false, features = ["bevy_state"] }
-bevy_gearbox_macros = { path = "../bevy_gearbox_macros" }
+bevy_gearbox_macros = { version = "0.3.0", path = "../bevy_gearbox_macros" }
 inventory = "0.3.21"
 
 [dev-dependencies]
