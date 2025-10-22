@@ -135,8 +135,7 @@ pub struct TransitionInstaller {
 
 inventory::collect!(TransitionInstaller);
 
-/// Install observers/systems for a specific transition event `E` (idempotent).
-pub fn install_transition<E>(app: &mut App)
+pub fn register_transition<E>(app: &mut App)
 where
     E: TransitionEvent + RegisteredTransitionEvent + Clone + 'static,
     for<'a> <E as Event>::Trigger<'a>: Default,
