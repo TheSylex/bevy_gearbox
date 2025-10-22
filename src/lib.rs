@@ -219,9 +219,6 @@ fn transition_observer<T: transitions::PhasePayload>(
 
     // Handle initialization case where there are no current active states
     if current_state.active_leaves.is_empty() {
-        // Enter the machine root first, then all ancestors from root→target
-        commands.trigger(EnterState { target: machine_entity });
-
         // Build path from target up to (but excluding) the machine root
         let mut path_to_target: Vec<Entity> = vec![new_super_state];
         path_to_target.extend(
