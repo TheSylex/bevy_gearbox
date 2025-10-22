@@ -43,8 +43,6 @@ impl Plugin for GearboxPlugin {
             .register_type::<StateChildren>()
             .register_type::<StateChildOf>()
             .register_type::<Guards>()
-            .register_type::<Active>()
-            .register_type::<Inactive>()
             .register_type::<EnterState>()
             .register_type::<ExitState>()
             .register_type::<ResetRegion>()
